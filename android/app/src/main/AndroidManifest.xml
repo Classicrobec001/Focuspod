@@ -1,6 +1,15 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- react-native-track-player: foreground service for background audio -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- Keeps the CPU running while audio plays in the background -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- App blocking: usage stats to detect foreground app -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
 
     <application
       android:name=".MainApplication"
@@ -22,5 +31,27 @@
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
       </activity>
+
+      <!--
+        react-native-track-player foreground service.
+        Explicitly declared here (in addition to the auto-merge from RNTP's own
+        AndroidManifest.xml) so that:
+          • android:foregroundServiceType="mediaPlayback" is guaranteed in the final
+            APK — Android 10+ silently kills media playback foreground services that
+            lack this attribute.
+          • WAKE_LOCK is held for the duration of playback so the CPU stays awake.
+          • tools:node="merge" lets Gradle merge our declaration with RNTP's rather
+            than treating them as a conflict.
+      -->
+      <service
+          android:name="com.doublesymmetry.trackplayer.service.MusicService"
+          android:enabled="true"
+          android:exported="true"
+          android:foregroundServiceType="mediaPlayback"
+          tools:node="merge">
+          <intent-filter>
+              <action android:name="android.intent.action.MEDIA_BUTTON" />
+          </intent-filter>
+      </service>
     </application>
 </manifest>
