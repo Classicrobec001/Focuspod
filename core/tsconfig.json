@@ -1,0 +1,19 @@
+{
+  "//": "DOM is included ONLY for the ambient fetch / AbortController / setInterval typings that both React Native and browsers provide. Core code must never touch `document`, `window`, `navigator` or any other browser-only global — anything platform-specific belongs behind a port in src/ports.",
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noFallthroughCasesInSwitch": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "types": []
+  },
+  "include": ["src"]
+}

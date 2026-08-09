@@ -72,3 +72,10 @@ yarn-error.log
 !.yarn/releases
 !.yarn/sdks
 !.yarn/versions
+
+# Web (Vite / PWA)
+#
+dist/
+dev-dist/
+.vite/
+*.local

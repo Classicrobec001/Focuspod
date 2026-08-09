@@ -1,0 +1,463 @@
+/*
+ * FocusPod device styling.
+ *
+ * The palette is ported verbatim from mobile/src/constants/colors.ts so the two
+ * builds stay visually identical: off-white plastic body, pale-green LCD glass,
+ * deep-navy selection. Layout that was computed from Dimensions.get('window')
+ * on mobile becomes viewport units and clamp() here.
+ */
+
+:root {
+  /* Device shell */
+  --device-body: #e8e8e3;
+  --device-body-shadow: #c8c8c3;
+
+  /* LCD */
+  --lcd-bezel: #2a2a2a;
+  --lcd-glass: #c8d4c0;
+  --lcd-titlebar-bg: #1b3d6c;
+  --lcd-titlebar-text: #ffffff;
+
+  /* List rows */
+  --row-bg: #d4ddcc;
+  --row-text: #1a2a1a;
+  --row-selected-bg: #1b3d6c;
+  --row-selected-text: #ffffff;
+  --row-arrow: #6a8a6a;
+  --row-divider: #b8c8b0;
+  --row-muted: #5c7057;
+
+  /* Click wheel */
+  --wheel-surface: #d8d8d2;
+  --wheel-highlight: #ecece8;
+  --wheel-label: #4a4a46;
+  --wheel-center: #c8c8c4;
+  --wheel-center-ring: #a8a8a4;
+
+  /* Progress */
+  --progress-track: #b0bea8;
+  --progress-fill: #1b3d6c;
+
+  /* Status */
+  --session-active: #1b5e20;
+  --session-warning: #e65100;
+
+  /* Metrics */
+  --lcd-radius: 4px;
+  --row-height: clamp(22px, 5.2vh, 30px);
+  --font-lcd: "SF Mono", "Menlo", "Consolas", ui-monospace, monospace;
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  /* 100dvh tracks the collapsing mobile URL bar; without it the wheel sits
+     under the browser chrome on first paint in Safari. */
+  min-height: 100dvh;
+}
+
+body {
+  font-family: var(--font-ui);
+  background: #1a1a18;
+  color: var(--row-text);
+  overscroll-behavior: none;
+  /* The wheel is a drag surface: stop the page rubber-banding under it and
+     stop long-press turning into a text selection or callout. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ─── Device shell ──────────────────────────────────────────────────────── */
+
+.device {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(12px, 3vh, 28px);
+  height: 100%;
+  min-height: 100dvh;
+  padding: max(12px, env(safe-area-inset-top)) 16px
+    max(12px, env(safe-area-inset-bottom)) 16px;
+  background: linear-gradient(170deg, #f2f2ee 0%, var(--device-body) 45%, #dcdcd6 100%);
+  margin: 0 auto;
+  /* On a desktop or tablet the device stays phone-shaped instead of stretching
+     a click wheel across 1400px. */
+  max-width: 460px;
+  box-shadow: 0 0 60px rgba(0, 0, 0, 0.5);
+}
+
+/* ─── LCD ───────────────────────────────────────────────────────────────── */
+
+.lcd {
+  width: 100%;
+  flex: 0 0 auto;
+  height: clamp(220px, 38vh, 340px);
+  padding: 9px;
+  background: var(--lcd-bezel);
+  border-radius: 6px;
+  box-shadow:
+    inset 0 1px 3px rgba(0, 0, 0, 0.6),
+    0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.lcd__glass {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--lcd-glass);
+  border-radius: var(--lcd-radius);
+  overflow: hidden;
+  font-family: var(--font-lcd);
+}
+
+.lcd__titlebar {
+  flex: 0 0 auto;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  padding: 0 8px;
+  background: var(--lcd-titlebar-bg);
+  color: var(--lcd-titlebar-text);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.lcd__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lcd__battery {
+  position: absolute;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  opacity: 0.9;
+}
+
+.lcd__content {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+/* ─── Menu list ─────────────────────────────────────────────────────────── */
+
+.menu {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.menu__row {
+  flex: 0 0 auto;
+  height: var(--row-height);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  font-size: clamp(11px, 2.6vw, 13px);
+  color: var(--row-text);
+  border-bottom: 1px solid var(--row-divider);
+}
+
+.menu__row--selected {
+  background: var(--row-selected-bg);
+  color: var(--row-selected-text);
+}
+
+.menu__label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menu__meta {
+  flex: 0 0 auto;
+  font-size: 0.85em;
+  opacity: 0.7;
+}
+
+.menu__arrow {
+  flex: 0 0 auto;
+  color: var(--row-arrow);
+  font-size: 0.9em;
+}
+
+.menu__row--selected .menu__arrow,
+.menu__row--selected .menu__meta {
+  color: var(--row-selected-text);
+  opacity: 0.85;
+}
+
+/* ─── Generic LCD panels ────────────────────────────────────────────────── */
+
+.panel {
+  height: 100%;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: clamp(11px, 2.6vw, 13px);
+  color: var(--row-text);
+  overflow: hidden;
+}
+
+.panel__center {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+  padding: 10px;
+}
+
+.panel__title {
+  font-weight: 700;
+  font-size: clamp(12px, 3vw, 15px);
+  line-height: 1.25;
+}
+
+.panel__subtitle {
+  color: var(--row-muted);
+  font-size: 0.9em;
+}
+
+.panel__note {
+  color: var(--row-muted);
+  font-size: 0.82em;
+  line-height: 1.4;
+}
+
+.panel__scroll {
+  overflow: hidden;
+  line-height: 1.35;
+}
+
+.status {
+  font-size: 0.82em;
+  color: var(--row-muted);
+}
+
+.status--warning {
+  color: var(--session-warning);
+}
+
+.status--active {
+  color: var(--session-active);
+}
+
+/* ─── Progress bar ──────────────────────────────────────────────────────── */
+
+.progress {
+  width: 100%;
+  height: 6px;
+  background: var(--progress-track);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progress__fill {
+  height: 100%;
+  background: var(--progress-fill);
+  border-radius: 3px;
+  transition: width 180ms linear;
+}
+
+.progress__labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8em;
+  color: var(--row-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── Countdown ─────────────────────────────────────────────────────────── */
+
+.countdown {
+  font-size: clamp(30px, 12vw, 52px);
+  font-weight: 300;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+/* ─── Cover art ─────────────────────────────────────────────────────────── */
+
+.cover {
+  width: clamp(48px, 16vw, 68px);
+  aspect-ratio: 1;
+  flex: 0 0 auto;
+  border-radius: 2px;
+  object-fit: cover;
+  background: var(--row-bg);
+  border: 1px solid var(--row-divider);
+}
+
+.cover--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 1.1em;
+  color: var(--row-muted);
+}
+
+/* ─── Click wheel ───────────────────────────────────────────────────────── */
+
+.wheel-area {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 0;
+}
+
+.wheel {
+  position: relative;
+  aspect-ratio: 1;
+  width: min(78vw, 46vh, 320px);
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 50% 32%,
+    var(--wheel-highlight) 0%,
+    var(--wheel-surface) 55%,
+    #cdcdc7 100%
+  );
+  box-shadow:
+    inset 0 1px 2px rgba(255, 255, 255, 0.9),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.08),
+    0 2px 6px rgba(0, 0, 0, 0.18);
+  /* touch-action:none is what makes the rotation gesture possible at all —
+     without it the browser claims the drag for scrolling and we never see
+     pointermove. */
+  touch-action: none;
+  cursor: pointer;
+}
+
+.wheel__label {
+  position: absolute;
+  color: var(--wheel-label);
+  font-size: clamp(9px, 2.4vw, 11px);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  pointer-events: none;
+  user-select: none;
+}
+
+.wheel__label--menu {
+  top: 7%;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.wheel__label--next {
+  right: 7%;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.wheel__label--prev {
+  left: 7%;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.wheel__label--playpause {
+  bottom: 7%;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.wheel__center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 32%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 35%, #d6d6d2 0%, var(--wheel-center) 100%);
+  border: 1px solid var(--wheel-center-ring);
+  box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.7);
+  pointer-events: none;
+}
+
+.wheel--pressed .wheel__center {
+  background: radial-gradient(circle at 50% 35%, #c4c4c0 0%, #b8b8b4 100%);
+}
+
+/* ─── Brand strip ───────────────────────────────────────────────────────── */
+
+.brand {
+  flex: 0 0 auto;
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  color: #9a9a94;
+  font-weight: 600;
+}
+
+/* ─── Install prompt ────────────────────────────────────────────────────── */
+
+.install {
+  position: fixed;
+  left: 50%;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(27, 61, 108, 0.96);
+  color: #fff;
+  font-size: 13px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+.install button {
+  font: inherit;
+  font-weight: 600;
+  color: #1b3d6c;
+  background: #fff;
+  border: 0;
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+.install button.install__dismiss {
+  background: transparent;
+  color: #cfd9e8;
+  padding: 5px;
+}
+
+/* ─── Reduced motion ────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .progress__fill {
+    transition: none;
+  }
+}

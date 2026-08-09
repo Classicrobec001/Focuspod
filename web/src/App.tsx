@@ -1,0 +1,55 @@
+import { useEffect, useState } from 'react';
+import {
+  useDownloadStore,
+  usePlaybackStore,
+  useSessionStore,
+  useSettingsStore,
+} from '@focuspod/core';
+import IpodDevice from './components/IpodDevice';
+import InstallPrompt from './components/InstallPrompt';
+
+export default function App() {
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    // Order matters: preferences configure the haptics port, and the download
+    // index has to be verified before playback can resolve offline chapters.
+    (async () => {
+      await useSettingsStore.getState().loadPreferences();
+      await useDownloadStore.getState().loadSaved();
+      await usePlaybackStore.getState().initPlayer();
+      await useSessionStore.getState().loadSessions();
+      setReady(true);
+    })().catch(error => {
+      console.error('[App] startup failed:', error);
+      // Render anyway — a failed preference read shouldn't be a blank screen.
+      setReady(true);
+    });
+  }, []);
+
+  if (!ready) {
+    return (
+      <div className="device">
+        <div className="lcd">
+          <div className="lcd__glass">
+            <div className="lcd__titlebar">
+              <span className="lcd__title">FocusPod</span>
+            </div>
+            <div className="lcd__content">
+              <div className="panel__center">
+                <span className="panel__subtitle">Starting…</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <IpodDevice />
+      <InstallPrompt />
+    </>
+  );
+}

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="FocusPod">
+  <rect x="6" y="3" width="52" height="58" rx="9" fill="#E8E8E3" stroke="#C8C8C3" stroke-width="1.5"/>
+  <rect x="12" y="9" width="40" height="21" rx="1.5" fill="#2A2A2A"/>
+  <rect x="14" y="11" width="36" height="17" fill="#C8D4C0"/>
+  <rect x="14" y="11" width="36" height="4.5" fill="#1B3D6C"/>
+  <circle cx="32" cy="45" r="12" fill="#D8D8D2" stroke="#A8A8A4" stroke-width="1.2"/>
+  <circle cx="32" cy="45" r="4" fill="#C8C8C4" stroke="#A8A8A4" stroke-width="0.8"/>
+</svg>

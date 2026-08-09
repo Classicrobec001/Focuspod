@@ -1,0 +1,170 @@
+import { create } from 'zustand';
+import { Book } from '../types';
+import { fetchBook, fetchBooks, isHydrated } from '../services/archiveService';
+import { readCatalogCache, writeCatalogCache } from '../services/storage';
+
+const PAGE_SIZE = 50;
+const MORE_SIZE = 20;
+
+/**
+ * AbortError is thrown both by the 15 s request timeout and by us cancelling a
+ * superseded search. Neither should ever surface to the user as an error.
+ */
+function isAbortError(e: unknown): boolean {
+  return e instanceof Error && e.name === 'AbortError';
+}
+
+/** Kept outside zustand state so replacing it never triggers a re-render. */
+let searchController: AbortController | null = null;
+
+interface LibraryState {
+  books: Book[];
+  searchResults: Book[];
+  selectedBook: Book | null;
+  isLoading: boolean;
+  error: string | null;
+  searchQuery: string;
+  hasMore: boolean;
+  offset: number;
+
+  loadBooks: () => Promise<void>;
+  loadMore: () => Promise<void>;
+  searchBooks: (query: string) => Promise<void>;
+  selectBook: (bookId: string) => Promise<void>;
+  clearSearch: () => void;
+  clearError: () => void;
+}
+
+export const useLibraryStore = create<LibraryState>((set, get) => ({
+  books: [],
+  searchResults: [],
+  selectedBook: null,
+  isLoading: false,
+  error: null,
+  searchQuery: '',
+  hasMore: true,
+  offset: 0,
+
+  loadBooks: async () => {
+    if (get().books.length > 0) return;
+
+    // Serve cache first so the list is instant on repeat visits, then refresh
+    // in the background.
+    const cached = await readCatalogCache<Book[]>('browse');
+    if (cached && cached.length > 0) {
+      set({ books: cached, offset: cached.length, hasMore: true, isLoading: false });
+      return;
+    }
+
+    set({ isLoading: true, error: null });
+    try {
+      const books = await fetchBooks({ limit: PAGE_SIZE, offset: 0 });
+      set({ books, offset: books.length, hasMore: books.length === PAGE_SIZE });
+      void writeCatalogCache('browse', books);
+    } catch (e) {
+      if (isAbortError(e)) {
+        console.warn('[Library] loadBooks timed out — will retry on next visit');
+      } else {
+        set({ error: (e as Error).message });
+      }
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  loadMore: async () => {
+    const { isLoading, hasMore, offset, books, searchQuery } = get();
+    if (isLoading || !hasMore || searchQuery) return;
+    set({ isLoading: true });
+    try {
+      const next = await fetchBooks({ limit: MORE_SIZE, offset });
+      // The Archive paginates by page number, so a partial final page can
+      // repeat items already held; drop those rather than showing duplicates.
+      const known = new Set(books.map(b => b.id));
+      const fresh = next.filter(b => !known.has(b.id));
+      set({
+        books: [...books, ...fresh],
+        offset: offset + next.length,
+        hasMore: next.length === MORE_SIZE,
+      });
+    } catch (e) {
+      if (!isAbortError(e)) set({ error: (e as Error).message });
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  searchBooks: async (query: string) => {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      set({ searchQuery: '', searchResults: [] });
+      return;
+    }
+
+    const cached = await readCatalogCache<Book[]>(`search:${trimmed}`);
+    if (cached) {
+      set({ searchResults: cached, searchQuery: trimmed, isLoading: false });
+      return;
+    }
+
+    // Cancel any in-flight search so a slow earlier response can't overwrite
+    // fresher results.
+    searchController?.abort();
+    const controller = new AbortController();
+    searchController = controller;
+
+    set({ searchQuery: trimmed, isLoading: true, error: null });
+    try {
+      const results = await fetchBooks({ search: trimmed, limit: MORE_SIZE }, controller.signal);
+      set({ searchResults: results });
+      void writeCatalogCache(`search:${trimmed}`, results);
+    } catch (e) {
+      if (isAbortError(e)) return; // superseded by a newer query
+      set({ error: (e as Error).message });
+    } finally {
+      if (searchController === controller) set({ isLoading: false });
+    }
+  },
+
+  /**
+   * Loads full detail for a book. Browse and search results carry no chapter
+   * list (the Archive's search endpoint doesn't return file lists), so a
+   * cached entry still needs hydrating before it can be played.
+   */
+  selectBook: async (bookId: string) => {
+    const { books, searchResults } = get();
+    const known =
+      books.find(b => b.id === bookId) ?? searchResults.find(b => b.id === bookId) ?? null;
+
+    // Show what we have immediately; the chapter list arrives a moment later.
+    set({ selectedBook: known });
+    if (known && isHydrated(known)) return;
+
+    set({ isLoading: true });
+    try {
+      const full = await fetchBook(bookId);
+      if (!full) {
+        set({ error: 'This book is no longer available.' });
+        return;
+      }
+      set({ selectedBook: full });
+      // Replace the placeholder in whichever list it came from so the chapter
+      // list survives navigating away and back.
+      set(s => ({
+        books: s.books.map(b => (b.id === bookId ? full : b)),
+        searchResults: s.searchResults.map(b => (b.id === bookId ? full : b)),
+      }));
+    } catch (e) {
+      if (!isAbortError(e)) set({ error: (e as Error).message });
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  clearSearch: () => {
+    searchController?.abort();
+    set({ searchQuery: '', searchResults: [] });
+  },
+
+  clearError: () => set({ error: null }),
+}));
