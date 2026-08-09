@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Accessibility service configuration for FocusPodAccessibilityService.
+
+  Only TYPE_WINDOW_STATE_CHANGED (typeWindowStateChanged) events are requested
+  — fired whenever any app's window comes to the foreground.  This is the
+  minimal event set needed for foreground-app detection; requesting more event
+  types wastes CPU and can slow down the device.
+
+  canRetrieveWindowContent="false" — we never inspect view hierarchies, only
+  the package name in the event, so this stays false for privacy and perf.
+-->
+<accessibility-service
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags=""
+    android:canRetrieveWindowContent="false"
+    android:description="@string/accessibility_service_description"
+    android:notificationTimeout="50"
+    android:settingsActivity="" />

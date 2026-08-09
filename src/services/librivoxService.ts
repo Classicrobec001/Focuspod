@@ -1,7 +1,7 @@
 import { Book, Chapter } from '../types';
 
 const API_BASE = 'https://librivox.org/api/feed/audiobooks';
-const RSS_TIMEOUT = 8000;
+const RSS_TIMEOUT = 15_000;
 
 interface LibrivoxSection {
   section_number: string;
@@ -15,16 +15,19 @@ interface LibrivoxAuthor {
   last_name: string;
 }
 
+// The LibriVox API uses `false` (boolean) for absent optional fields instead
+// of null/undefined.  All fields that might be missing are typed as `| false`
+// so the compiler reminds us to guard them before using array/string methods.
 interface LibrivoxRaw {
   id: string;
   title: string;
-  description: string;
+  description: string | false;
   url_zip_file: string;
   url_rss: string;
   totaltimesecs: number;
-  authors: LibrivoxAuthor[];
-  genres?: { name: string }[];
-  sections?: LibrivoxSection[];
+  authors: LibrivoxAuthor[] | false;
+  genres: { name: string }[] | false;
+  sections: LibrivoxSection[] | false;
 }
 
 function parseDuration(hhmmss: string | undefined | null): number {
@@ -36,7 +39,7 @@ function parseDuration(hhmmss: string | undefined | null): number {
 }
 
 function authorName(raw: LibrivoxRaw): string {
-  if (!raw.authors?.length) return 'Unknown';
+  if (!Array.isArray(raw.authors) || raw.authors.length === 0) return 'Unknown';
   const a = raw.authors[0];
   return [a.first_name, a.last_name].filter(Boolean).join(' ');
 }
@@ -46,7 +49,7 @@ function coverUrl(bookId: string): string {
 }
 
 function mapBook(raw: LibrivoxRaw): Book {
-  const chapters: Chapter[] = (raw.sections ?? [])
+  const chapters: Chapter[] = (Array.isArray(raw.sections) ? raw.sections : [])
     .filter(s => s.listen_url)
     .map(s => ({
       id: `${raw.id}_${s.section_number}`,
@@ -60,9 +63,11 @@ function mapBook(raw: LibrivoxRaw): Book {
     id: raw.id,
     title: raw.title,
     author: authorName(raw),
-    description: raw.description?.replace(/<[^>]*>/g, '').trim() ?? '',
+    description: typeof raw.description === 'string'
+      ? raw.description.replace(/<[^>]*>/g, '').trim()
+      : '',
     coverUrl: coverUrl(raw.id),
-    categories: raw.genres?.map(g => g.name) ?? [],
+    categories: Array.isArray(raw.genres) ? raw.genres.map(g => g.name) : [],
     chapters,
     duration: raw.totaltimesecs,
   };
@@ -78,10 +83,26 @@ function buildQuery(params: Record<string, string | number>): string {
     .join('&');
 }
 
-async function apiFetch(query: Record<string, string | number>): Promise<Response> {
+async function apiFetch(
+  query: Record<string, string | number>,
+  externalSignal?: AbortSignal,
+): Promise<Response> {
   const url = `${API_BASE}?${buildQuery(query)}`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), RSS_TIMEOUT);
+
+  // Chain an external cancel signal (e.g. from libraryStore.searchController)
+  // into the internal controller so the fetch is aborted immediately when the
+  // caller cancels, rather than waiting for the 8-second timeout.
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      clearTimeout(timer);
+      controller.abort();
+    } else {
+      externalSignal.addEventListener('abort', () => controller.abort(), { once: true });
+    }
+  }
+
   try {
     return await fetch(url, { signal: controller.signal });
   } finally {
@@ -89,12 +110,15 @@ async function apiFetch(query: Record<string, string | number>): Promise<Respons
   }
 }
 
-export async function fetchBooks(params: {
-  search?: string;
-  genre?: string;
-  limit?: number;
-  offset?: number;
-}): Promise<Book[]> {
+export async function fetchBooks(
+  params: {
+    search?: string;
+    genre?: string;
+    limit?: number;
+    offset?: number;
+  },
+  signal?: AbortSignal,
+): Promise<Book[]> {
   const query: Record<string, string | number> = {
     format: 'json',
     fields: FIELDS,
@@ -105,24 +129,22 @@ export async function fetchBooks(params: {
   if (params.search) query.title = `^${params.search}`;
   if (params.genre) query.genre = params.genre;
 
-  const res = await apiFetch(query);
+  const res = await apiFetch(query, signal);
   if (!res.ok) throw new Error(`Librivox API error: ${res.status}`);
 
   const json = await res.json();
-  const books: LibrivoxRaw[] = json.books ?? [];
+  const books: LibrivoxRaw[] = Array.isArray(json.books) ? json.books : [];
   return books.map(mapBook);
 }
 
-export async function fetchBook(id: string): Promise<Book | null> {
-  const res = await apiFetch({
-    format: 'json',
-    fields: FIELDS,
-    extended: '1',
-    id,
-  });
+export async function fetchBook(id: string, signal?: AbortSignal): Promise<Book | null> {
+  const res = await apiFetch(
+    { format: 'json', fields: FIELDS, extended: '1', id },
+    signal,
+  );
   if (!res.ok) return null;
 
   const json = await res.json();
-  const books: LibrivoxRaw[] = json.books ?? [];
+  const books: LibrivoxRaw[] = Array.isArray(json.books) ? json.books : [];
   return books.length ? mapBook(books[0]) : null;
 }

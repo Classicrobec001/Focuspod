@@ -168,7 +168,7 @@ export default function ActiveSessionScreen() {
           onMenu={confirmEnd}
           onNext={undefined}
           onPrevious={undefined}
-          onForward={undefined}
+          onPlayPause={undefined}
         />
         <Text style={styles.hint}>
           {isPlaying ? 'Press center to pause' : 'Press center to resume'}

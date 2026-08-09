@@ -7,9 +7,19 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <!-- Keeps the CPU running while audio plays in the background -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- IpodWheel haptic feedback during rotary drag -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <!-- App blocking: usage stats to detect foreground app -->
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
+    <!-- File downloads to internal app storage.
+         Required on Android ≤ 9 (API 28); harmless on API 29+ where scoped storage
+         makes this permission optional for app-private directories. -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28"
+        tools:ignore="ScopedStorage" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
 
     <application
       android:name=".MainApplication"
@@ -52,6 +62,27 @@
           <intent-filter>
               <action android:name="android.intent.action.MEDIA_BUTTON" />
           </intent-filter>
+      </service>
+      <!--
+        FocusPod Accessibility Service — used for real-time foreground-app
+        detection during focus sessions.  TYPE_WINDOW_STATE_CHANGED events
+        fire instantly (vs. the UsageStatsManager polling fallback which can
+        lag 2-5 s on emulators / Android 10+ devices).
+
+        The user must enable this manually under:
+          Settings → Accessibility → Installed apps → FocusPod
+      -->
+      <service
+          android:name=".blocking.FocusPodAccessibilityService"
+          android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+          android:exported="true"
+          android:label="@string/app_name">
+          <intent-filter>
+              <action android:name="android.accessibilityservice.AccessibilityService" />
+          </intent-filter>
+          <meta-data
+              android:name="android.accessibilityservice"
+              android:resource="@xml/accessibility_service_config" />
       </service>
     </application>
 </manifest>

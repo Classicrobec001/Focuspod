@@ -15,39 +15,42 @@ import android.text.TextUtils
 import android.util.Log
 import com.facebook.react.bridge.*
 import com.facebook.react.modules.core.DeviceEventManagerModule
+import java.lang.ref.WeakReference
 
 /**
  * FocusPodBlockingModule
  *
  * Exposes native Android app-blocking primitives to React Native.
  *
- * Permissions required (declared in AndroidManifest.xml):
- *   - PACKAGE_USAGE_STATS  (granted via Settings.ACTION_USAGE_ACCESS_SETTINGS)
- *   - BIND_ACCESSIBILITY_SERVICE  (granted via Settings.ACTION_ACCESSIBILITY_SETTINGS)
+ * ─── Blocking architecture ────────────────────────────────────────────────────
  *
- * The blocking loop polls the foreground app every 500ms using UsageStatsManager.
- * When a blocked app is detected, it launches FocusPod's MainActivity on top.
+ * PRIMARY:  FocusPodAccessibilityService (TYPE_WINDOW_STATE_CHANGED)
+ *   • Event-driven — fires the instant an app window comes to the foreground.
+ *   • Zero polling overhead.
+ *   • Requires the user to enable FocusPod under Settings → Accessibility.
+ *   • startBlocking() sets FocusPodAccessibilityService.blockedPackages.
+ *
+ * FALLBACK: UsageStatsManager polling thread (500 ms interval)
+ *   • Always started alongside the accessibility path as a safety net.
+ *   • Effective on devices/emulators where the accessibility service is not yet
+ *     enabled, or where it is killed by the system under memory pressure.
+ *   • Requires PACKAGE_USAGE_STATS permission (Usage Access in Settings).
+ *   • On Android 10+ and most emulators the UsageStats data may be stale by
+ *     several seconds, so this path is intentionally secondary.
+ *
+ * ─── Permissions required ─────────────────────────────────────────────────────
+ *   - PACKAGE_USAGE_STATS  (Settings > Special App Access > Usage Access)
+ *   - BIND_ACCESSIBILITY_SERVICE  (Settings > Accessibility > FocusPod)
  */
 class FocusPodBlockingModule(private val reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
 
     override fun getName() = "FocusPodBlocking"
 
-    // ─── Audio focus state ────────────────────────────────────────────────
+    // ─── Audio focus state ────────────────────────────────────────────────────
+
     private var audioFocusRequest: AudioFocusRequest? = null  // API 26+ only
 
-    /**
-     * Listener registered for both the legacy and modern audio focus APIs.
-     *
-     * Emits React Native DeviceEvents so JS can react to every focus change:
-     *   FocusPodAudioFocusGained  — focus is ours; resume playback if paused
-     *   FocusPodAudioFocusLost    — permanent loss; stop gracefully
-     *   FocusPodAudioFocusDucked  — transient loss/duck; pause or lower volume
-     *
-     * ExoPlayer (via RNTP autoHandleInterruptions) already acts on these
-     * internally, but on some OEM Android builds that internal handler is
-     * unreliable — emitting events gives JS a guaranteed second chance.
-     */
     private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { change ->
         val (label, jsEvent) = when (change) {
             AudioManager.AUDIOFOCUS_GAIN ->
@@ -65,7 +68,7 @@ class FocusPodBlockingModule(private val reactContext: ReactApplicationContext) 
             else ->
                 Pair("UNKNOWN($change)", null)
         }
-        Log.d("FocusPod", "[AudioFocus] change: $label")
+        Log.d(TAG, "[AudioFocus] change: $label")
         jsEvent?.let {
             reactContext
                 .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
@@ -73,11 +76,12 @@ class FocusPodBlockingModule(private val reactContext: ReactApplicationContext) 
         }
     }
 
-    private var blockedPackages: Set<String> = emptySet()
+    // ─── Blocking state ───────────────────────────────────────────────────────
+
     private var blockingThread: Thread? = null
     @Volatile private var isBlocking = false
 
-    // ─── Permission Checks ─────────────────────────────────────────────────
+    // ─── Permission checks ────────────────────────────────────────────────────
 
     @ReactMethod
     fun hasUsageStatsPermission(promise: Promise) {
@@ -92,21 +96,28 @@ class FocusPodBlockingModule(private val reactContext: ReactApplicationContext) 
 
     @ReactMethod
     fun hasAccessibilityPermission(promise: Promise) {
+        promise.resolve(isAccessibilityServiceEnabled())
+    }
+
+    private fun isAccessibilityServiceEnabled(): Boolean {
+        // Check 1: live instance (most reliable — the service is definitely running).
+        if (FocusPodAccessibilityService.isRunning()) return true
+
+        // Check 2: system enabled-services string (service declared but may not
+        // have fired onServiceConnected yet, e.g. during a cold app start).
         val enabledServices = Settings.Secure.getString(
             reactContext.contentResolver,
             Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
-        ) ?: ""
-        val colonSplitter = TextUtils.SimpleStringSplitter(':')
-        colonSplitter.setString(enabledServices)
-        var hasPermission = false
-        while (colonSplitter.hasNext()) {
-            val componentName = colonSplitter.next()
-            if (componentName.contains(reactContext.packageName, ignoreCase = true)) {
-                hasPermission = true
-                break
+        ) ?: return false
+
+        val splitter = TextUtils.SimpleStringSplitter(':')
+        splitter.setString(enabledServices)
+        while (splitter.hasNext()) {
+            if (splitter.next().contains(reactContext.packageName, ignoreCase = true)) {
+                return true
             }
         }
-        promise.resolve(hasPermission)
+        return false
     }
 
     @ReactMethod
@@ -127,15 +138,8 @@ class FocusPodBlockingModule(private val reactContext: ReactApplicationContext) 
         promise.resolve(null)
     }
 
-    // ─── Audio Focus ──────────────────────────────────────────────────────
+    // ─── Audio focus ──────────────────────────────────────────────────────────
 
-    /**
-     * Requests AUDIOFOCUS_GAIN for long-running media playback.
-     * Uses AudioFocusRequest.Builder on API 26+ and falls back to the
-     * deprecated single-arg overload on older versions.
-     * Returns true if focus was granted immediately, false if it was delayed
-     * or denied (RNTP/ExoPlayer will still attempt playback regardless).
-     */
     @ReactMethod
     fun requestAudioFocus(promise: Promise) {
         try {
@@ -162,18 +166,14 @@ class FocusPodBlockingModule(private val reactContext: ReactApplicationContext) 
                 )
             }
             val granted = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-            Log.d("FocusPod", "[AudioFocus] requestAudioFocus result=$result granted=$granted")
+            Log.d(TAG, "[AudioFocus] requestAudioFocus result=$result granted=$granted")
             promise.resolve(granted)
         } catch (e: Exception) {
-            Log.e("FocusPod", "[AudioFocus] requestAudioFocus error: ${e.message}")
+            Log.e(TAG, "[AudioFocus] requestAudioFocus error: ${e.message}")
             promise.reject("AUDIO_FOCUS_ERROR", e.message)
         }
     }
 
-    /**
-     * Abandons audio focus when playback is intentionally stopped (not just paused).
-     * Allows other apps (music, podcasts) to reclaim focus cleanly.
-     */
     @ReactMethod
     fun abandonAudioFocus(promise: Promise) {
         try {
@@ -185,21 +185,15 @@ class FocusPodBlockingModule(private val reactContext: ReactApplicationContext) 
                 am.abandonAudioFocus(audioFocusChangeListener)
             }
             audioFocusRequest = null
-            Log.d("FocusPod", "[AudioFocus] abandonAudioFocus done")
+            Log.d(TAG, "[AudioFocus] abandonAudioFocus done")
             promise.resolve(null)
         } catch (e: Exception) {
             promise.reject("AUDIO_FOCUS_ERROR", e.message)
         }
     }
 
-    // ─── Volume ────────────────────────────────────────────────────────────
+    // ─── Volume ───────────────────────────────────────────────────────────────
 
-    /**
-     * Sets STREAM_MUSIC to its hardware maximum and returns the max volume step.
-     * No special permission is required — any app can call setStreamVolume on STREAM_MUSIC.
-     * The FLAG_SHOW_UI flag (0x1) is intentionally omitted so the system volume OSD
-     * is not displayed.
-     */
     @ReactMethod
     fun setMusicVolumeToMax(promise: Promise) {
         try {
@@ -212,7 +206,7 @@ class FocusPodBlockingModule(private val reactContext: ReactApplicationContext) 
         }
     }
 
-    // ─── Installed Apps ────────────────────────────────────────────────────
+    // ─── Installed apps ───────────────────────────────────────────────────────
 
     @ReactMethod
     fun getInstalledApps(promise: Promise) {
@@ -233,58 +227,150 @@ class FocusPodBlockingModule(private val reactContext: ReactApplicationContext) 
         }
     }
 
-    // ─── Blocking Control ──────────────────────────────────────────────────
+    // ─── Blocking control ─────────────────────────────────────────────────────
 
     @ReactMethod
     fun startBlocking(packages: ReadableArray, promise: Promise) {
-        blockedPackages = (0 until packages.size()).map { packages.getString(it) ?: "" }.toSet()
+        val pkgSet = (0 until packages.size())
+            .map { packages.getString(it) ?: "" }
+            .filter { it.isNotBlank() }
+            .toSet()
+
+        // ── Diagnostics ───────────────────────────────────────────────────────
+        val a11yRunning   = FocusPodAccessibilityService.isRunning()
+        val a11yEnabled   = isAccessibilityServiceEnabled()
+        val appOps        = reactContext.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+        val usageGranted  = appOps.checkOpNoThrow(
+            AppOpsManager.OPSTR_GET_USAGE_STATS,
+            android.os.Process.myUid(),
+            reactContext.packageName,
+        ) == AppOpsManager.MODE_ALLOWED
+
+        Log.d(TAG, "═══════════════════════════════════════════")
+        Log.d(TAG, "[Blocking] startBlocking() called")
+        Log.d(TAG, "[Blocking]   packages to block : $pkgSet")
+        Log.d(TAG, "[Blocking]   a11y service live  : $a11yRunning")
+        Log.d(TAG, "[Blocking]   a11y in sys setting: $a11yEnabled")
+        Log.d(TAG, "[Blocking]   PACKAGE_USAGE_STATS: $usageGranted")
+        if (!a11yEnabled) {
+            Log.w(TAG, "[Blocking] ⚠ Accessibility service NOT enabled — " +
+                  "real-time blocking unavailable. User must enable FocusPod " +
+                  "under Settings → Accessibility. Falling back to UsageStats polling.")
+        }
+        if (!usageGranted) {
+            Log.w(TAG, "[Blocking] ⚠ PACKAGE_USAGE_STATS NOT granted — " +
+                  "UsageStats fallback will also be ineffective. " +
+                  "Grant Usage Access in Settings → Special App Access.")
+        }
+        Log.d(TAG, "═══════════════════════════════════════════")
+
+        // ── Wire blocked packages into the accessibility service ──────────────
+        // The service reads this @Volatile field directly in onAccessibilityEvent.
+        FocusPodAccessibilityService.blockedPackages = pkgSet
+
+        // ── Start UsageStats polling fallback ─────────────────────────────────
         isBlocking = true
         blockingThread?.interrupt()
         blockingThread = Thread {
             val usm = reactContext.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+            var pollCount = 0L
+            Log.d(TAG, "[Blocking/Poll] thread started (fallback path)")
             while (isBlocking && !Thread.currentThread().isInterrupted) {
                 try {
                     val now = System.currentTimeMillis()
+                    // 5-second look-back: UsageStatsManager only updates every
+                    // few seconds on emulators; a 1-second window misses events.
                     val stats = usm.queryUsageStats(
                         UsageStatsManager.INTERVAL_DAILY,
-                        now - 1000,
+                        now - 5_000L,
                         now,
                     )
-                    val foreground = stats?.maxByOrNull { it.lastTimeUsed }?.packageName
-                    if (foreground != null && blockedPackages.contains(foreground)) {
+                    val topEntry   = stats?.maxByOrNull { it.lastTimeUsed }
+                    val foreground = topEntry?.packageName
+
+                    // Log every poll so the user can verify what the system sees.
+                    // Use Log.v (verbose) to keep it filterable; logcat -s FocusPod:V
+                    Log.v(TAG, "[Blocking/Poll] #$pollCount foreground=$foreground" +
+                          " statsEntries=${stats?.size ?: 0}" +
+                          " a11yLive=$a11yRunning")
+
+                    if (foreground != null && pkgSet.contains(foreground)) {
+                        Log.w(TAG, "[Blocking/Poll] BLOCKED app foreground: $foreground" +
+                              " — firing redirect (UsageStats fallback path)")
                         bringFocusPodToFront()
-                        sendBlockEvent(foreground)
+                        emitBlockEvent(foreground)
                     }
+
+                    pollCount++
                     Thread.sleep(500)
                 } catch (_: InterruptedException) {
                     break
+                } catch (e: Exception) {
+                    Log.e(TAG, "[Blocking/Poll] unexpected error: ${e.message}")
                 }
             }
+            Log.d(TAG, "[Blocking/Poll] thread exited after $pollCount polls")
         }.also { it.start() }
+
+        Log.d(TAG, "[Blocking] polling thread id=${blockingThread?.id}")
         promise.resolve(null)
     }
 
     @ReactMethod
     fun stopBlocking(promise: Promise) {
+        Log.d(TAG, "[Blocking] stopBlocking() — clearing a11y packages + stopping poll thread")
+        FocusPodAccessibilityService.blockedPackages = emptySet()
         isBlocking = false
         blockingThread?.interrupt()
         blockingThread = null
-        blockedPackages = emptySet()
         promise.resolve(null)
     }
 
-    // ─── Helpers ───────────────────────────────────────────────────────────
+    // ─── Helpers ──────────────────────────────────────────────────────────────
 
     private fun bringFocusPodToFront() {
-        val pm = reactContext.packageManager
-        val intent = pm.getLaunchIntentForPackage(reactContext.packageName) ?: return
+        val ownPkg = reactContext.packageName
+        val intent  = reactContext.packageManager.getLaunchIntentForPackage(ownPkg)
+        if (intent == null) {
+            Log.e(TAG, "[Blocking] getLaunchIntentForPackage($ownPkg) returned null")
+            return
+        }
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+        Log.d(TAG, "[Blocking] startActivity → $ownPkg (NEW_TASK|REORDER_TO_FRONT)")
         reactContext.startActivity(intent)
     }
 
-    private fun sendBlockEvent(packageName: String) {
-        reactContext
-            .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-            .emit("FocusPodAppBlocked", packageName)
+    // ─── Static helpers (called from FocusPodAccessibilityService) ────────────
+
+    companion object {
+        private const val TAG = "FocusPod"
+
+        // Weak ref so the module doesn't prevent GC if React reloads.
+        private var moduleRef: WeakReference<FocusPodBlockingModule>? = null
+
+        fun register(module: FocusPodBlockingModule) {
+            moduleRef = WeakReference(module)
+        }
+
+        /**
+         * Emit a JS DeviceEvent when a blocked app is detected.
+         * Called from both the polling thread and FocusPodAccessibilityService.
+         */
+        fun emitBlockEvent(packageName: String) {
+            moduleRef?.get()?.let { module ->
+                try {
+                    module.reactContext
+                        .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                        .emit("FocusPodAppBlocked", packageName)
+                } catch (e: Exception) {
+                    Log.w(TAG, "[Blocking] emitBlockEvent failed: ${e.message}")
+                }
+            }
+        }
+    }
+
+    init {
+        // Register this instance so FocusPodAccessibilityService can emit JS events.
+        register(this)
     }
 }

@@ -41,16 +41,30 @@ export async function requestUsageStatsPermission(): Promise<void> {
 }
 
 // ─── Installed Apps ───────────────────────────────────────────────────────
+//
+// NOTE: getInstalledApps() uses PackageManager.getInstalledApplications() which
+// needs NO special permissions.  PACKAGE_USAGE_STATS is only required by
+// startBlocking/stopBlocking, which use UsageStatsManager for foreground-app
+// detection.  If the list is empty on the emulator it simply means there are no
+// user-installed (non-FLAG_SYSTEM) apps — install an APK to test blocking.
 
 export async function getInstalledApps(): Promise<BlockableApp[]> {
   if (!isAndroid || !FocusPodBlocking) return [];
-  const apps: { packageName: string; appName: string }[] =
+  const raw: { packageName: string; appName: string }[] =
     await FocusPodBlocking.getInstalledApps();
-  return apps.filter(
+  console.log(
+    '[Blocking] getInstalledApps raw:',
+    raw.length,
+    'apps, sample:',
+    JSON.stringify(raw.slice(0, 3)),
+  );
+  const filtered = raw.filter(
     a =>
       !a.packageName.startsWith('com.android.') &&
       a.packageName !== 'com.focuspod',
   );
+  console.log('[Blocking] getInstalledApps filtered:', filtered.length, 'apps');
+  return filtered;
 }
 
 // ─── Blocking Control ─────────────────────────────────────────────────────

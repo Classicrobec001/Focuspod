@@ -99,7 +99,7 @@ export default function NowPlayingScreen() {
           onMenu={handleMenu}
           onNext={skipToNext}
           onPrevious={skipToPrevious}
-          onForward={handleSeekForward}
+          onPlayPause={handleSeekForward}
           onRotate={handleRotate}
         />
       </View>

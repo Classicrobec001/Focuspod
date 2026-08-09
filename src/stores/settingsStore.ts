@@ -7,6 +7,7 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   haptics: true,
   defaultSessionDuration: 30,
   blockedApps: [],
+  playbackRate: 1.0,
 };
 
 interface SettingsStoreState {
@@ -18,6 +19,7 @@ interface SettingsStoreState {
   setHaptics: (enabled: boolean) => Promise<void>;
   setDefaultDuration: (minutes: number) => Promise<void>;
   setBlockedApps: (apps: string[]) => Promise<void>;
+  setPlaybackRate: (rate: number) => Promise<void>;
 }
 
 export const useSettingsStore = create<SettingsStoreState>((set, get) => ({
@@ -52,6 +54,12 @@ export const useSettingsStore = create<SettingsStoreState>((set, get) => ({
 
   setBlockedApps: async (blockedApps) => {
     const updated = { ...get().preferences, blockedApps };
+    set({ preferences: updated });
+    await storageService.savePreferences(updated);
+  },
+
+  setPlaybackRate: async (playbackRate) => {
+    const updated = { ...get().preferences, playbackRate };
     set({ preferences: updated });
     await storageService.savePreferences(updated);
   },

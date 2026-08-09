@@ -67,6 +67,7 @@ export interface UserPreferences {
   haptics: boolean;
   defaultSessionDuration: number; // minutes
   blockedApps: string[];
+  playbackRate?: number; // 0.75 | 1 | 1.25 | 1.5 | 2
 }
 
 // ─── Navigation ───────────────────────────────────────────────────────────

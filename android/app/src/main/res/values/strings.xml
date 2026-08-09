@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">FocusPod</string>
+    <string name="accessibility_service_description">FocusPod uses accessibility to detect when a blocked app opens during a focus session and immediately bring you back to FocusPod.</string>
 </resources>

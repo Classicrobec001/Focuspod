@@ -1,184 +1,269 @@
 /**
- * IpodWheel — classic 5-button click wheel.
+ * IpodWheel — physical click-wheel replica.
  *
- * Zones (by touch angle from center):
- *   Top    315°–45°   → onMenu
- *   Right   45°–135°  → onNext
- *   Bottom 135°–225°  → onForward
- *   Left   225°–315°  → onPrevious
- *   Center (inner radius) → onSelect
+ * Gesture model
+ * ─────────────
+ * • Touch lands inside CENTER_R × 1.1  → center tap (fires onSelect on release).
+ * • Touch lands on the ring:
+ *     – Rotate ≥ DRAG_THRESHOLD degrees total → drag mode; fires onRotate(delta)
+ *       each move event; haptic every HAPTIC_STEP degrees.
+ *     – Release before DRAG_THRESHOLD     → tap; zone determined by the angle
+ *       at grant time (MENU top, ▶▶ right, ▶/|| bottom, ◀◀ left).
  *
- * Rotary scroll fires onRotate(delta) where delta > 0 = clockwise.
+ * Props
+ * ─────
+ *   onSelect    – center button tapped
+ *   onMenu      – top button (MENU)
+ *   onNext      – right button (▶▶  skip next)
+ *   onPrevious  – left button (◀◀  skip prev)
+ *   onPlayPause – bottom button (▶/||)
+ *   onRotate    – drag delta in degrees (+CW / −CCW)
+ *
+ * Android elevation note
+ * ──────────────────────
+ * The center button must NOT have elevation > 0.  On Android, an elevated child
+ * View receives touches at the native layer before the JS responder system sees
+ * them — even when pointerEvents="none" is set in JS — silently swallowing all
+ * center-area touches.  Keep all child Views at elevation 0 so every touch
+ * bubbles up to the parent wheel responder.
  */
 
 import React, { useCallback, useRef } from 'react';
 import {
   View,
-  TouchableOpacity,
   Text,
   StyleSheet,
   GestureResponderEvent,
+  Platform,
+  Vibration,
 } from 'react-native';
-import { Colors } from '../constants/colors';
-import { Layout } from '../constants/layout';
+import { IpodColors } from '../constants/colors';
+import { IpodLayout } from '../constants/layout';
+import { playTick } from '../services/tickSoundService';
 
-interface IpodWheelProps {
+export interface IpodWheelProps {
   onSelect?: () => void;
   onMenu?: () => void;
   onNext?: () => void;
   onPrevious?: () => void;
-  onForward?: () => void; // bottom button — seek +30s
+  onPlayPause?: () => void;
   onRotate?: (delta: number) => void;
   disabled?: boolean;
 }
 
-const WHEEL_D = Layout.wheelDiameter;
-const WHEEL_R = WHEEL_D / 2;
-const CENTER_D = Layout.wheelCenterDiameter;
-const CENTER_R = CENTER_D / 2;
+const WHEEL_R = IpodLayout.wheelRadius;
+const WHEEL_D = IpodLayout.wheelDiameter;
+const CENTER_R = IpodLayout.centerButtonRadius;
+const CENTER_D = IpodLayout.centerButtonDiameter;
+const DRAG_THRESHOLD = 8;   // degrees before a move is classified as a drag
+const HAPTIC_STEP    = 18;  // degrees between haptic pulses during drag
 
+// ─── Geometry helpers ─────────────────────────────────────────────────────────
+
+/** Returns degrees 0–360, with 0° at the top (12-o'clock). */
 function angleDeg(dx: number, dy: number): number {
-  // atan2 gives angle from positive-x axis. We add 90° so 0° = top.
   let deg = (Math.atan2(dy, dx) * 180) / Math.PI + 90;
   if (deg < 0) deg += 360;
   if (deg >= 360) deg -= 360;
   return deg;
 }
 
+/** True when deg is in the arc [start, end), wrapping through 0 if needed. */
 function inZone(deg: number, start: number, end: number): boolean {
   if (start < end) return deg >= start && deg < end;
-  // wraps through 0° (e.g. 315°–45°)
   return deg >= start || deg < end;
 }
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export default function IpodWheel({
   onSelect,
   onMenu,
   onNext,
   onPrevious,
-  onForward,
+  onPlayPause,
   onRotate,
   disabled = false,
 }: IpodWheelProps) {
   const wheelRef = useRef<View>(null);
-  // Absolute screen position of the wheel's top-left corner (updated on layout).
   const wheelOriginRef = useRef({ x: 0, y: 0 });
-  const lastAngleRef = useRef<number | null>(null);
 
-  // Re-measure whenever the wheel lays out (handles initial render + orientation change).
+  // Gesture state — all refs so updates don't trigger re-renders
+  const isCenterRef            = useRef(false);
+  const gestureStartAngleRef   = useRef<number | null>(null);
+  const lastAngleRef           = useRef<number | null>(null);
+  const totalRotationRef       = useRef(0);
+  const isDraggingRef          = useRef(false);
+  const hapticAccumRef         = useRef(0);
+
+  // ── Layout: capture absolute position once the view is measured ─────────
   const handleLayout = useCallback(() => {
-    wheelRef.current?.measureInWindow((x, y) => {
+    wheelRef.current?.measureInWindow((x, y, width, height) => {
       wheelOriginRef.current = { x, y };
-      console.log('[Wheel] origin measured:', x.toFixed(1), y.toFixed(1));
+      console.log(
+        `[Wheel] measureInWindow → x=${x.toFixed(1)} y=${y.toFixed(1)}` +
+        ` w=${width.toFixed(1)} h=${height.toFixed(1)}` +
+        ` (expecting WHEEL_D=${WHEEL_D})`,
+      );
     });
   }, []);
 
-  const resolveCoords = (evt: GestureResponderEvent): { dx: number; dy: number; dist: number } => {
-    // pageX/pageY are always reliable absolute screen coords.
+  // ── Coordinate helper (reads refs — safe to call from any stale closure) ─
+  const resolveCoords = useCallback((evt: GestureResponderEvent) => {
     const { pageX, pageY } = evt.nativeEvent;
-    const dx = pageX - wheelOriginRef.current.x - WHEEL_R;
-    const dy = pageY - wheelOriginRef.current.y - WHEEL_R;
+    const dx   = pageX - wheelOriginRef.current.x - WHEEL_R;
+    const dy   = pageY - wheelOriginRef.current.y - WHEEL_R;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    return { dx, dy, dist };
-  };
+    return { dx, dy, dist, pageX, pageY };
+  }, []); // wheelOriginRef is a ref — reads current value at call time
 
-  const handleWheelPress = useCallback(
+  // ── Responder: should this view claim the touch? ─────────────────────────
+  const shouldSetResponder = useCallback((): boolean => {
+    console.log(`[Wheel] onStartShouldSetResponder — disabled=${disabled} → ${!disabled}`);
+    return !disabled;
+  }, [disabled]);
+
+  // ── Grant: touch begins on this view ─────────────────────────────────────
+  const handleGrant = useCallback(
     (evt: GestureResponderEvent) => {
       if (disabled) return;
-      const { dx, dy, dist } = resolveCoords(evt);
-      const deg = angleDeg(dx, dy);
-      console.log('[Wheel] press dx:', dx.toFixed(1), 'dy:', dy.toFixed(1), 'dist:', dist.toFixed(1), 'deg:', deg.toFixed(1));
+      const { dx, dy, dist, pageX, pageY } = resolveCoords(evt);
 
-      // Center button — generous hit radius to avoid misfire into ring zones.
-      if (dist <= CENTER_R * 1.4) {
-        console.log('[Wheel] → CENTER (select)');
-        onSelect?.();
+      const isCenter = dist <= CENTER_R * 1.1;
+      console.log(
+        `[Wheel] GRANT pageX=${pageX.toFixed(1)} pageY=${pageY.toFixed(1)}` +
+        ` → dx=${dx.toFixed(1)} dy=${dy.toFixed(1)} dist=${dist.toFixed(1)}` +
+        ` (CENTER_R=${CENTER_R.toFixed(1)} WHEEL_R=${WHEEL_R.toFixed(1)})` +
+        ` zone=${isCenter ? 'CENTER' : 'RING'}`,
+      );
+
+      if (isCenter) {
+        isCenterRef.current = true;
         return;
       }
 
-      // Dead zone between center button and ring.
-      if (dist < CENTER_R * 1.55) {
-        console.log('[Wheel] → dead zone, ignoring');
-        return;
-      }
-
-      // Ring zone — determine sector by angle.
-      if (inZone(deg, 315, 45)) {
-        console.log('[Wheel] → TOP (menu)');
-        onMenu?.();
-      } else if (inZone(deg, 45, 135)) {
-        console.log('[Wheel] → RIGHT (next)');
-        onNext?.();
-      } else if (inZone(deg, 135, 225)) {
-        console.log('[Wheel] → BOTTOM (forward)');
-        onForward?.();
-      } else {
-        console.log('[Wheel] → LEFT (previous)');
-        onPrevious?.();
-      }
+      isCenterRef.current              = false;
+      const angle                      = angleDeg(dx, dy);
+      gestureStartAngleRef.current     = angle;
+      lastAngleRef.current             = angle;
+      totalRotationRef.current         = 0;
+      isDraggingRef.current            = false;
+      hapticAccumRef.current           = 0;
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [disabled, onSelect, onMenu, onNext, onPrevious, onForward],
+    [disabled, resolveCoords],
   );
 
-  // Rotary tracking via touch move on the ring.
-  const handleWheelMove = useCallback(
+  // ── Move: finger dragging ─────────────────────────────────────────────────
+  const handleMove = useCallback(
     (evt: GestureResponderEvent) => {
-      if (disabled || !onRotate) return;
+      if (disabled || isCenterRef.current || !onRotate) return;
+      if (lastAngleRef.current === null) return;
+
       const { dx, dy, dist } = resolveCoords(evt);
-      if (dist < CENTER_R * 1.2 || dist > WHEEL_R) return;
+      if (dist > WHEEL_R * 1.15 || dist < CENTER_R * 0.7) return;
 
       const angle = angleDeg(dx, dy);
-      if (lastAngleRef.current !== null) {
-        let delta = angle - lastAngleRef.current;
-        if (delta > 180) delta -= 360;
-        if (delta < -180) delta += 360;
-        if (Math.abs(delta) > 1) {
-          onRotate(delta);
+      let delta   = angle - lastAngleRef.current;
+      if (delta >  180) delta -= 360;
+      if (delta < -180) delta += 360;
+      lastAngleRef.current      = angle;
+      totalRotationRef.current += delta;
+
+      if (!isDraggingRef.current && Math.abs(totalRotationRef.current) >= DRAG_THRESHOLD) {
+        isDraggingRef.current = true;
+        console.log('[Wheel] drag threshold crossed → drag mode');
+      }
+
+      if (isDraggingRef.current && Math.abs(delta) > 0.3) {
+        onRotate(delta);
+        hapticAccumRef.current += Math.abs(delta);
+        if (hapticAccumRef.current >= HAPTIC_STEP) {
+          hapticAccumRef.current -= HAPTIC_STEP;
+          // Haptic pulse + tick sound fire together on every 18° step.
+          if (Platform.OS === 'android') Vibration.vibrate(1);
+          playTick();
         }
       }
-      lastAngleRef.current = angle;
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [disabled, onRotate],
+    [disabled, onRotate, resolveCoords],
   );
 
-  const handleWheelEnd = useCallback(() => {
-    lastAngleRef.current = null;
-  }, []);
+  // ── Release / terminate: fire tap callback ────────────────────────────────
+  const handleRelease = useCallback(() => {
+    if (disabled) return;
 
+    if (isCenterRef.current) {
+      console.log('[Wheel] RELEASE → CENTER (onSelect)');
+      isCenterRef.current = false;
+      onSelect?.();
+      return;
+    }
+
+    if (!isDraggingRef.current && gestureStartAngleRef.current !== null) {
+      const deg = gestureStartAngleRef.current;
+      if (inZone(deg, 315, 45)) {
+        console.log(`[Wheel] RELEASE → TOP/MENU (deg=${deg.toFixed(1)})`);
+        onMenu?.();
+      } else if (inZone(deg, 45, 135)) {
+        console.log(`[Wheel] RELEASE → RIGHT/NEXT (deg=${deg.toFixed(1)})`);
+        onNext?.();
+      } else if (inZone(deg, 135, 225)) {
+        console.log(`[Wheel] RELEASE → BOTTOM/PLAYPAUSE (deg=${deg.toFixed(1)})`);
+        onPlayPause?.();
+      } else {
+        console.log(`[Wheel] RELEASE → LEFT/PREV (deg=${deg.toFixed(1)})`);
+        onPrevious?.();
+      }
+    } else if (isDraggingRef.current) {
+      console.log('[Wheel] RELEASE after drag — no tap fired');
+    }
+
+    // Reset all gesture state
+    isCenterRef.current          = false;
+    gestureStartAngleRef.current = null;
+    lastAngleRef.current         = null;
+    totalRotationRef.current     = 0;
+    isDraggingRef.current        = false;
+    hapticAccumRef.current       = 0;
+  }, [disabled, onSelect, onMenu, onNext, onPrevious, onPlayPause]);
+
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <View style={styles.container}>
-      {/* Outer wheel ring — touch target */}
       <View
         ref={wheelRef}
         style={styles.wheel}
         onLayout={handleLayout}
-        onStartShouldSetResponder={() => true}
-        onResponderGrant={handleWheelPress}
-        onResponderMove={handleWheelMove}
-        onResponderRelease={handleWheelEnd}
-        onResponderTerminate={handleWheelEnd}
+        onStartShouldSetResponder={shouldSetResponder}
+        onResponderGrant={handleGrant}
+        onResponderMove={handleMove}
+        onResponderRelease={handleRelease}
+        onResponderTerminate={handleRelease}
       >
-        {/* Ring labels */}
+        {/* Ring labels — Text without onPress never claims the responder */}
         <Text style={[styles.label, styles.labelTop]}>MENU</Text>
         <Text style={[styles.label, styles.labelRight]}>▶▶</Text>
         <Text style={[styles.label, styles.labelBottom]}>+30s</Text>
-        <Text style={[styles.label, styles.labelLeft]}>◀◀</Text>
+        <Text style={[styles.label, styles.labelLeft]}>−30s</Text>
 
-        {/* Center button */}
-        <TouchableOpacity
-          style={styles.center}
-          onPress={disabled ? undefined : onSelect}
-          activeOpacity={0.7}
-          disabled={disabled}
-        >
-          <View style={styles.centerInner} />
-        </TouchableOpacity>
+        {/* Inner shadow ring — gives the wheel a recessed, physical look */}
+        <View style={styles.innerShadowRing} pointerEvents="none" />
+
+        {/*
+          Center button — visual only.
+          IMPORTANT: NO elevation here.  An elevated Android View receives touches
+          at the native layer before the JS responder system, silently swallowing
+          them even when pointerEvents="none" is set in JS.
+        */}
+        <View style={styles.center} pointerEvents="none">
+          <View style={styles.centerRing} />
+        </View>
       </View>
     </View>
   );
 }
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   container: {
@@ -189,52 +274,63 @@ const styles = StyleSheet.create({
     width: WHEEL_D,
     height: WHEEL_D,
     borderRadius: WHEEL_R,
-    backgroundColor: Colors.wheelBackground,
-    borderWidth: 2,
-    borderColor: Colors.wheelRing,
+    backgroundColor: IpodColors.wheelSurface,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
+    // Pronounced ring border — lighter top edge, darker bottom gives depth
+    borderWidth: 2.5,
+    borderTopColor: IpodColors.wheelHighlight,
+    borderBottomColor: IpodColors.wheelCenterRing,
+    borderLeftColor: '#C4C4BE',
+    borderRightColor: '#C4C4BE',
+    // Shadow on the wheel itself is fine — it's the parent, not a blocking child
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.5,
-    shadowRadius: 12,
-    elevation: 12,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.30,
+    shadowRadius: 14,
+    elevation: 10,
   },
   center: {
     width: CENTER_D,
     height: CENTER_D,
     borderRadius: CENTER_R,
-    backgroundColor: Colors.wheelCenter,
+    backgroundColor: IpodColors.wheelCenterBtn,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: Colors.wheelRing,
+    borderColor: IpodColors.wheelCenterRing,
     zIndex: 10,
+    // ⚠️  NO elevation here — see component-level comment above.
   },
-  centerInner: {
-    width: CENTER_D * 0.4,
-    height: CENTER_D * 0.4,
-    borderRadius: CENTER_D * 0.2,
-    backgroundColor: Colors.wheelRing,
+  centerRing: {
+    width: CENTER_D * 0.35,
+    height: CENTER_D * 0.35,
+    borderRadius: CENTER_D * 0.175,
+    borderWidth: 1.5,
+    borderColor: IpodColors.wheelCenterRing,
+    backgroundColor: 'transparent',
+  },
+  innerShadowRing: {
+    position: 'absolute',
+    top: 4,
+    left: 4,
+    right: 4,
+    bottom: 4,
+    borderRadius: WHEEL_R - 4,
+    borderWidth: 1.5,
+    borderColor: 'rgba(0,0,0,0.12)',
+    // No background — purely a border to simulate inner shadow
   },
   label: {
     position: 'absolute',
-    color: Colors.wheelText,
-    fontSize: Layout.fontSizeXs,
-    fontWeight: '600',
-    letterSpacing: 1,
+    color: IpodColors.wheelLabel,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
-  labelTop: {
-    top: 14,
-  },
-  labelRight: {
-    right: 14,
-  },
-  labelBottom: {
-    bottom: 14,
-  },
-  labelLeft: {
-    left: 14,
-  },
+  labelTop:    { top: 14 },
+  labelRight:  { right: 14 },
+  labelBottom: { bottom: 14 },
+  labelLeft:   { left: 14 },
 });
