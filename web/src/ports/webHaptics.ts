@@ -66,15 +66,22 @@ export class WebHapticPort implements HapticPort {
    * Opt out of the iOS "ambient" session, which the silent switch mutes.
    * Without this the wheel is completely silent on an iPhone with the ringer
    * off, which is how most phones are carried.
+   *
+   * Done exactly once. Assigning the session type re-negotiates the route with
+   * the OS, which can interrupt audio that is already playing — so repeating it
+   * on every tap would stop the book mid-sentence.
    */
+  private claimedSession = false;
+
   private claimPlaybackAudioSession(): void {
+    if (this.claimedSession) return;
+    this.claimedSession = true;
     const session = (navigator as Navigator & AudioSessionCapable).audioSession;
-    if (session && session.type !== 'playback') {
-      try {
-        session.type = 'playback';
-      } catch {
-        // Older Safari exposes no setter; nothing else to try.
-      }
+    if (!session || session.type === 'playback') return;
+    try {
+      session.type = 'playback';
+    } catch {
+      // Older Safari exposes no setter; nothing else to try.
     }
   }
 

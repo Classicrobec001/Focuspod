@@ -107,22 +107,40 @@ export class WebAudioPort implements AudioPort {
    */
   unlock(): void {
     if (this.unlocked) return;
+
     const el = this.ensureElement();
-    const previous = el.src;
+
+    // Never prime an element that is holding real audio. Priming assigns a
+    // silent source, and assigning `src` tears down whatever is loaded — so
+    // doing it mid-playback stops the book. Once a queue exists the element has
+    // been played from a user gesture anyway, which is all priming was for.
+    if (this.queue.length > 0 || el.currentSrc) {
+      this.unlocked = true;
+      return;
+    }
+
     // A 1-sample silent wav — enough for Safari to mark the element as
     // user-activated without audibly clicking.
     el.src =
       'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YQAAAAA=';
+
+    const clear = () => {
+      // Always leave the element empty, on success or failure. Leaving the
+      // silent source attached is what previously killed the next real play.
+      el.pause();
+      el.removeAttribute('src');
+      el.load();
+    };
+
     el.play()
       .then(() => {
-        el.pause();
-        el.currentTime = 0;
-        if (previous) el.src = previous;
-        else el.removeAttribute('src');
+        clear();
         this.unlocked = true;
       })
       .catch(() => {
-        // Not in a gesture yet — the next touch will try again.
+        // Refused because this wasn't a user gesture. Clean up and let the next
+        // real gesture try again.
+        clear();
       });
   }
 
@@ -265,6 +283,9 @@ export class WebAudioPort implements AudioPort {
     const el = this.ensureElement();
     try {
       await el.play();
+      // A real play that the browser accepted is the strongest possible proof
+      // the element is unlocked; priming must never run again after this.
+      this.unlocked = true;
     } catch (error) {
       // NotAllowedError means we lost the gesture chain; surface it rather than
       // leaving the UI showing "playing" with silence.
