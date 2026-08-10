@@ -20,11 +20,24 @@ export default function App() {
       await usePlaybackStore.getState().initPlayer();
       await useSessionStore.getState().loadSessions();
       setReady(true);
+      // Downloads stop when the tab closes or the connection drops. Pick up
+      // where they left off once the UI is up, so the user never has to notice.
+      // Skipped while offline — the 'online' listener below covers that case.
+      if (navigator.onLine !== false) {
+        void useDownloadStore.getState().resumeInterrupted();
+      }
     })().catch(error => {
       console.error('[App] startup failed:', error);
       // Render anyway — a failed preference read shouldn't be a blank screen.
       setReady(true);
     });
+  }, []);
+
+  // Same again when the connection comes back mid-session.
+  useEffect(() => {
+    const onOnline = () => void useDownloadStore.getState().resumeInterrupted();
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
   }, []);
 
   if (!ready) {

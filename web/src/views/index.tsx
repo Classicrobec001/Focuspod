@@ -292,7 +292,7 @@ export function ChaptersView({ cursor }: { cursor: number }) {
 // ─── Now playing ──────────────────────────────────────────────────────────
 
 export function NowPlayingView() {
-  const { currentBook, currentChapterIndex, position, duration, status, playbackRate } =
+  const { currentBook, currentChapterIndex, position, duration, status, playbackRate, notice } =
     usePlaybackStore();
 
   if (!currentBook) {
@@ -322,6 +322,7 @@ export function NowPlayingView() {
       </div>
 
       <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {notice && <div className="status status--warning">{notice}</div>}
         <div className="progress">
           <div className="progress__fill" style={{ width: `${fraction * 100}%` }} />
         </div>

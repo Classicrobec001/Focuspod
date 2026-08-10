@@ -31,6 +31,8 @@ export class WebAudioPort implements AudioPort {
   private listeners = new Set<Listener>();
   private rate = 1;
   private unlocked = false;
+  /** Guards recoverFromError against recursing through its own load errors. */
+  private recovering = false;
   /** Object URL for the chapter currently loaded from the offline cache. */
   private objectUrl: string | null = null;
 
@@ -76,14 +78,20 @@ export class WebAudioPort implements AudioPort {
     el.addEventListener('ended', () => void this.handleEnded());
     el.addEventListener('error', () => {
       const code = el.error?.code;
-      this.emit({
-        type: 'error',
-        message:
-          code === MediaError.MEDIA_ERR_NETWORK
-            ? 'Lost connection while streaming this chapter.'
-            : code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED
-              ? 'This chapter could not be played.'
-              : 'Playback failed.',
+      // A streaming chapter that fails mid-book shouldn't end the session when
+      // later chapters are sitting in the cache. navigator.onLine can report
+      // true behind a captive portal, so this is the check that actually holds.
+      void this.recoverFromError().then(recovered => {
+        if (recovered) return;
+        this.emit({
+          type: 'error',
+          message:
+            code === MediaError.MEDIA_ERR_NETWORK
+              ? 'Lost connection while streaming this chapter.'
+              : code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED
+                ? 'This chapter could not be played.'
+                : 'Playback failed.',
+        });
       });
     });
 
@@ -122,8 +130,85 @@ export class WebAudioPort implements AudioPort {
 
   async loadQueue(tracks: AudioTrack[], startIndex: number): Promise<void> {
     this.queue = tracks;
-    this.index = Math.max(0, Math.min(tracks.length - 1, startIndex));
+    const wanted = Math.max(0, Math.min(tracks.length - 1, startIndex));
+
+    // Starting on a chapter that isn't downloaded while offline would just
+    // stall; begin at the first one that can actually play.
+    const playable = this.nextPlayable(wanted, 1) ?? this.nextPlayable(wanted, -1);
+    this.index = playable ?? wanted;
     await this.loadCurrent();
+    if (playable !== null && playable !== wanted) {
+      this.emit({ type: 'track', index: this.index });
+      this.emit({
+        type: 'notice',
+        message: 'Started at the first downloaded chapter.',
+      });
+    }
+  }
+
+  /** True when this queue entry resolves to an offline copy. */
+  private isCached(index: number): boolean {
+    return this.queue[index]?.url.startsWith(CACHE_URL_SCHEME) ?? false;
+  }
+
+  /**
+   * The next entry that can actually play, searching in `direction`.
+   *
+   * With no connection only downloaded chapters are playable, so a partially
+   * downloaded book must step over its gaps rather than stalling on the first
+   * missing chapter. Returns null when nothing ahead is playable.
+   */
+  private nextPlayable(from: number, direction: 1 | -1): number | null {
+    // navigator.onLine is a coarse signal — it can read true behind a captive
+    // portal — so it is only used to skip proactively. The error handler below
+    // catches anything it gets wrong.
+    const offline = navigator.onLine === false;
+    for (let i = from; i >= 0 && i < this.queue.length; i += direction) {
+      if (!offline || this.isCached(i)) return i;
+    }
+    return null;
+  }
+
+  /**
+   * A chapter failed to load. If any later chapter is downloaded, jump to it
+   * rather than stopping. Returns whether it recovered.
+   */
+  private async recoverFromError(): Promise<boolean> {
+    if (this.recovering) return false;
+
+    let target: number | null = null;
+    for (let i = this.index + 1; i < this.queue.length; i++) {
+      if (this.isCached(i)) {
+        target = i;
+        break;
+      }
+    }
+    if (target === null) return false;
+
+    this.recovering = true;
+    try {
+      // +1 because the chapter that failed is skipped too.
+      const skipped = target - this.index;
+      this.index = target;
+      await this.loadCurrent();
+      this.emit({ type: 'track', index: this.index });
+      this.noticeSkipped(skipped);
+      await this.play();
+      return true;
+    } catch {
+      return false;
+    } finally {
+      this.recovering = false;
+    }
+  }
+
+  /** Announce chapters stepped over so the jump isn't silent. */
+  private noticeSkipped(count: number): void {
+    if (count <= 0) return;
+    this.emit({
+      type: 'notice',
+      message: `Skipped ${count} chapter${count === 1 ? '' : 's'} not downloaded.`,
+    });
   }
 
   private async loadCurrent(): Promise<void> {
@@ -161,13 +246,16 @@ export class WebAudioPort implements AudioPort {
   }
 
   private async handleEnded(): Promise<void> {
-    if (this.index >= this.queue.length - 1) {
+    const next = this.nextPlayable(this.index + 1, 1);
+    if (next === null) {
       this.emit({ type: 'status', status: 'completed' });
       return;
     }
-    this.index += 1;
+    const skipped = next - this.index - 1;
+    this.index = next;
     await this.loadCurrent();
     this.emit({ type: 'track', index: this.index });
+    this.noticeSkipped(skipped);
     await this.play();
   }
 
@@ -210,21 +298,29 @@ export class WebAudioPort implements AudioPort {
   }
 
   async skipToNext(): Promise<void> {
-    if (this.index >= this.queue.length - 1) return;
+    const next = this.nextPlayable(this.index + 1, 1);
+    if (next === null) return;
+    const skipped = next - this.index - 1;
     const wasPlaying = !this.ensureElement().paused;
-    this.index += 1;
+    this.index = next;
     await this.loadCurrent();
+    this.emit({ type: 'track', index: this.index });
+    this.noticeSkipped(skipped);
     if (wasPlaying) await this.play();
   }
 
   async skipToPrevious(): Promise<void> {
-    if (this.index <= 0) {
+    const previous = this.index <= 0 ? null : this.nextPlayable(this.index - 1, -1);
+    if (previous === null) {
       await this.seekTo(0);
       return;
     }
+    const skipped = this.index - previous - 1;
     const wasPlaying = !this.ensureElement().paused;
-    this.index -= 1;
+    this.index = previous;
     await this.loadCurrent();
+    this.emit({ type: 'track', index: this.index });
+    this.noticeSkipped(skipped);
     if (wasPlaying) await this.play();
   }
 

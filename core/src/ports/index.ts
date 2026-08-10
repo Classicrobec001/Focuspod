@@ -30,6 +30,11 @@ export type AudioEvent =
   | { type: 'progress'; position: number; duration: number }
   /** The engine advanced to another queue entry on its own (track ended). */
   | { type: 'track'; index: number }
+  /**
+   * Something worth telling the user, but not a failure — e.g. chapters that
+   * aren't downloaded were skipped while offline. Does not change status.
+   */
+  | { type: 'notice'; message: string }
   | { type: 'error'; message: string };
 
 export interface AudioPort {

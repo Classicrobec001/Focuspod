@@ -16,6 +16,9 @@ interface PlaybackStoreState {
   isPlayerReady: boolean;
   /** Set when a saved position exists for the book currently being loaded. */
   resumePosition: number | null;
+  /** Transient message for the UI (e.g. "skipped 2 chapters not downloaded"). */
+  notice: string | null;
+  clearNotice: () => void;
 
   initPlayer: () => Promise<void>;
   loadBook: (book: Book, chapterIndex?: number) => Promise<void>;
@@ -55,6 +58,9 @@ export const usePlaybackStore = create<PlaybackStoreState>((set, get) => ({
   playbackRate: 1.0,
   isPlayerReady: false,
   resumePosition: null,
+  notice: null,
+
+  clearNotice: () => set({ notice: null }),
 
   initPlayer: async () => {
     await audio().setup();
@@ -72,6 +78,9 @@ export const usePlaybackStore = create<PlaybackStoreState>((set, get) => ({
         case 'track':
           set({ currentChapterIndex: event.index, position: 0 });
           break;
+        case 'notice':
+          set({ notice: event.message });
+          break;
         case 'error':
           console.warn('[Playback] engine error:', event.message);
           set({ status: 'error' });
@@ -87,6 +96,7 @@ export const usePlaybackStore = create<PlaybackStoreState>((set, get) => ({
   },
 
   loadBook: async (book, chapterIndex = 0) => {
+    set({ notice: null });
     if (book.chapters.length === 0) {
       set({ status: 'error' });
       console.warn('[Playback] loadBook called with an unhydrated book:', book.id);
@@ -161,21 +171,17 @@ export const usePlaybackStore = create<PlaybackStoreState>((set, get) => ({
     set({ position: target });
   },
 
+  // The engine, not the store, decides where a skip lands: offline it steps
+  // over chapters that aren't downloaded, so the destination is not simply
+  // index ± 1. It reports the result back as a 'track' event.
   skipToNext: async () => {
-    const { currentBook, currentChapterIndex } = get();
-    if (!currentBook || currentChapterIndex >= currentBook.chapters.length - 1) return;
+    if (!get().currentBook) return;
     await audio().skipToNext();
-    set({ currentChapterIndex: currentChapterIndex + 1, position: 0 });
   },
 
   skipToPrevious: async () => {
-    const { currentChapterIndex } = get();
-    if (currentChapterIndex <= 0) {
-      await get().seekTo(0);
-      return;
-    }
+    if (!get().currentBook) return;
     await audio().skipToPrevious();
-    set({ currentChapterIndex: currentChapterIndex - 1, position: 0 });
   },
 
   setRate: async rate => {

@@ -17,6 +17,7 @@ import { create } from 'zustand';
 import { Book } from '../types';
 import { downloads } from '../ports/registry';
 import { loadDownloadIndex, PersistedDownload, saveDownloadIndex } from '../services/storage';
+import { isAbortError, isNetworkError } from '../utils/errors';
 
 export type DownloadStatus = 'idle' | 'downloading' | 'partial' | 'done' | 'error';
 
@@ -50,6 +51,13 @@ interface DownloadStoreState {
   deleteDownload: (bookId: string) => Promise<void>;
   loadSaved: () => Promise<void>;
   refreshUsage: () => Promise<void>;
+  /**
+   * Continue any download left unfinished — closing the tab or losing the
+   * connection stops one mid-chapter. Called at startup and whenever the
+   * connection returns, so a download the user already asked for finishes
+   * without them having to notice and tap Resume.
+   */
+  resumeInterrupted: () => Promise<void>;
 }
 
 /** Live AbortControllers, kept out of state so aborting doesn't re-render. */
@@ -193,7 +201,11 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
       });
       void get().refreshUsage();
     } catch (e) {
-      const cancelled = (e as Error)?.name === 'AbortError';
+      // A cancellation or a dropped connection leaves the download merely
+      // unfinished — it stays 'partial' so resumeInterrupted() picks it up
+      // later. 'error' is reserved for things the user has to act on, such as
+      // running out of space, which retrying on its own would never fix.
+      const retryable = isAbortError(e) || isNetworkError(e);
       set(s => {
         const prev = s.books[book.id];
         if (!prev) return s;
@@ -201,13 +213,13 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
           ...s.books,
           [book.id]: {
             ...prev,
-            // Keep whatever landed; a cancelled or failed download is partial,
-            // never complete.
-            status: cancelled
+            // Keep whatever landed; an interrupted download is partial, never
+            // complete.
+            status: retryable
               ? statusFor(prev.chapterIds.length, prev.totalChapters)
               : ('error' as DownloadStatus),
             progress: prev.chapterIds.length / prev.totalChapters,
-            errorMessage: cancelled ? undefined : ((e as Error)?.message ?? 'Download failed'),
+            errorMessage: retryable ? undefined : ((e as Error)?.message ?? 'Download failed'),
           },
         };
         persist(next);
@@ -277,6 +289,18 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
       set({ usedBytes, quotaBytes });
     } catch {
       // Storage estimation is best-effort and unsupported on some platforms.
+    }
+  },
+
+  resumeInterrupted: async () => {
+    // Only 'partial' — an errored download is left alone so a failure the user
+    // needs to act on (no space, missing file) isn't retried on every launch.
+    const pending = Object.values(get().books).filter(s => s.status === 'partial');
+    // Sequentially: several books at once would compete for bandwidth and make
+    // every one of them slower.
+    for (const state of pending) {
+      if (get().books[state.book.id]?.status !== 'partial') continue;
+      await get().startDownload(state.book);
     }
   },
 }));

@@ -5,17 +5,12 @@ import { readCatalogCache, writeCatalogCache } from '../services/storage';
 // Downloads are the offline source of truth for a book. downloadStore has no
 // dependency on this module, so the import is one-directional.
 import { useDownloadStore } from './downloadStore';
+// AbortError is thrown both by the 15 s request timeout and by cancelling a
+// superseded search; neither should ever surface to the user as an error.
+import { isAbortError, isNetworkError } from '../utils/errors';
 
 const PAGE_SIZE = 50;
 const MORE_SIZE = 20;
-
-/**
- * AbortError is thrown both by the 15 s request timeout and by us cancelling a
- * superseded search. Neither should ever surface to the user as an error.
- */
-function isAbortError(e: unknown): boolean {
-  return e instanceof Error && e.name === 'AbortError';
-}
 
 /** Kept outside zustand state so replacing it never triggers a re-render. */
 let searchController: AbortController | null = null;
@@ -26,11 +21,9 @@ let searchController: AbortController | null = null;
  * nothing and hide the fact that their downloads still work.
  */
 function catalogError(e: unknown): string {
-  const message = (e as Error)?.message ?? '';
-  const isNetwork = /fetch|network|load failed|connection/i.test(message);
-  return isNetwork
+  return isNetworkError(e)
     ? 'Could not reach the library. Downloaded books still work offline.'
-    : message || 'Something went wrong loading the library.';
+    : ((e as Error)?.message || 'Something went wrong loading the library.');
 }
 
 interface LibraryState {
