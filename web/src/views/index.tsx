@@ -16,6 +16,7 @@ import {
   useDownloadStore,
   useLibraryStore,
   usePlaybackStore,
+  useReadAlongStore,
   useSessionStore,
   useSettingsStore,
   FOCUS_DURATIONS,
@@ -195,7 +196,13 @@ export function DownloadsView({ cursor }: { cursor: number }) {
 
 // ─── Book detail ──────────────────────────────────────────────────────────
 
-export const BOOK_ACTIONS = ['Play', 'Start Focus Session', 'Download', 'Chapters'] as const;
+export const BOOK_ACTIONS = [
+  'Play',
+  'Start Focus Session',
+  'Download',
+  'Chapters',
+  'Read Along',
+] as const;
 
 export function BookDetailView({ cursor }: { cursor: number }) {
   const book = useLibraryStore(s => s.selectedBook);
@@ -333,6 +340,70 @@ export function NowPlayingView() {
           </span>
           <span>{formatTime(duration)}</span>
         </div>
+        <div className="status">Centre: read along · rotate: scrub</div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Read along ───────────────────────────────────────────────────────────
+
+/**
+ * The printed text beside the recording.
+ *
+ * Deliberately not presented as a synced lyrics view: LibriVox has no word or
+ * line timings, so the position is an estimate from elapsed time. Saying so is
+ * better than a highlight that is confidently in the wrong place — and the
+ * reader can scroll, which switches the estimate off until they resync.
+ */
+export function ReadAlongView() {
+  const { text, isLoading, unavailable, error, cursor, following } = useReadAlongStore();
+  const book = usePlaybackStore(s => s.currentBook);
+
+  if (isLoading) {
+    return (
+      <div className="panel__center">
+        <span className="panel__subtitle">Looking for the text…</span>
+        <span className="panel__note">Searching public-domain editions.</span>
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="panel__center">
+        <span className="panel__title">Text unavailable</span>
+        <span className="panel__note">{error}</span>
+      </div>
+    );
+  }
+  if (unavailable || !text) {
+    return (
+      <div className="panel__center">
+        <span className="panel__title">No text found</span>
+        <span className="panel__note">
+          No freely-readable edition of “{book?.title ?? 'this book'}” is available to read along
+          with.
+        </span>
+      </div>
+    );
+  }
+
+  // Render a window of paragraphs; the LCD clips the rest.
+  const visible = text.paragraphs.slice(cursor, cursor + 6);
+  const percent = Math.round((cursor / Math.max(1, text.paragraphs.length - 1)) * 100);
+
+  return (
+    <div className="reader">
+      <div className="reader__body">
+        {visible.map((paragraph, i) => (
+          <p key={cursor + i} className={i === 0 ? 'reader__p reader__p--current' : 'reader__p'}>
+            {paragraph}
+          </p>
+        ))}
+      </div>
+      <div className="reader__footer">
+        <span>{following ? 'Following audio · estimated' : 'Manual scroll'}</span>
+        <span>{percent}%</span>
       </div>
     </div>
   );

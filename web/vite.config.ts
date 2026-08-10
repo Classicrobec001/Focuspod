@@ -68,6 +68,17 @@ export default defineConfig({
             },
           },
           {
+            // Book texts for read-along. Cached on first read so returning to
+            // a book works offline; a few hundred KB each, hence the low cap.
+            urlPattern: /^https:\/\/archive\.org\/download\/.*\.txt$/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'focuspod-texts',
+              expiration: { maxEntries: 20, maxAgeSeconds: 60 * 60 * 24 * 60 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          {
             urlPattern: /^https:\/\/archive\.org\/services\/img\//,
             handler: 'CacheFirst',
             options: {

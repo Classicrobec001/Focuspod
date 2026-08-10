@@ -15,8 +15,10 @@ import {
   useIpodNavStore,
   useLibraryStore,
   usePlaybackStore,
+  useReadAlongStore,
   useSessionStore,
   useSettingsStore,
+  bookFraction,
   type ScreenId,
 } from '@focuspod/core';
 import ClickWheel from './ClickWheel';
@@ -31,6 +33,7 @@ import {
   HomeMenuView,
   HOME_ITEMS,
   NowPlayingView,
+  ReadAlongView,
   SearchResultsView,
   SearchView,
   SEARCH_ALPHABET,
@@ -61,6 +64,7 @@ export default function IpodDevice() {
   const session = useSessionStore();
   const downloads = useDownloadStore();
   const settings = useSettingsStore();
+  const readAlong = useReadAlongStore();
 
   /** Search text is transient UI state — it never needs to outlive the screen. */
   const [searchQuery, setSearchQuery] = useState('');
@@ -105,7 +109,8 @@ export default function IpodDevice() {
           if (session.focusSetupStep === 'book') return library.books.slice(0, 40).length + 1;
           return 0;
         case 'now-playing':
-          return 0; // rotation scrubs instead of moving a cursor
+        case 'read-along':
+          return 0; // rotation scrubs / scrolls instead of moving a cursor
         default:
           return 0;
       }
@@ -133,6 +138,8 @@ export default function IpodDevice() {
         return 'Chapters';
       case 'now-playing':
         return 'Now Playing';
+      case 'read-along':
+        return 'Read Along';
       case 'focus':
         return session.currentSession ? 'Focus' : 'New Session';
       case 'sessions':
@@ -226,6 +233,17 @@ export default function IpodDevice() {
             else await downloads.startDownload(book);
             return;
           }
+          case 'Read Along': {
+            // Reading needs a loaded book: the estimate is derived from the
+            // playhead, so start it if this book isn't the one playing.
+            if (playback.currentBook?.id !== book.id) {
+              if (book.chapters.length === 0) return;
+              await playback.loadBook(book, 0);
+            }
+            nav.push('read-along');
+            await readAlong.load(book);
+            return;
+          }
           case 'Chapters': {
             nav.resetCursor('chapters');
             nav.push('chapters');
@@ -235,9 +253,24 @@ export default function IpodDevice() {
         return;
       }
 
-      case 'now-playing':
-        await playback.togglePlayPause();
+      // On the real device Select cycles through the Now Playing views while
+      // play/pause stays on the wheel's own button — which is also what frees
+      // the centre press for the reader.
+      case 'now-playing': {
+        if (!playback.currentBook) return;
+        nav.push('read-along');
+        await readAlong.load(playback.currentBook);
         return;
+      }
+
+      // Centre re-centres on the estimated position and resumes following after
+      // the reader has scrolled away.
+      case 'read-along': {
+        const book = playback.currentBook;
+        if (!book) return;
+        readAlong.syncTo(bookFraction(book, playback.currentChapterIndex, playback.position));
+        return;
+      }
 
       case 'focus': {
         // Active session: centre toggles pause.
@@ -382,11 +415,35 @@ export default function IpodDevice() {
         void playback.seekBy(direction * SEEK_PER_DETENT);
         return;
       }
+      // In the reader it turns pages. Scrolling by hand hands control to the
+      // reader; the centre button gives it back to the estimate.
+      if (screen.id === 'read-along') {
+        readAlong.scrollBy(direction);
+        return;
+      }
       const count = itemCount(screen.id);
       if (count > 0) nav.moveCursor(screen.id, count, direction);
     },
-    [screen.id, playback, itemCount, nav],
+    [screen.id, playback, itemCount, nav, readAlong],
   );
+
+  // ─── Follow the audio in the reader ───────────────────────────────────
+
+  useEffect(() => {
+    if (screen.id !== 'read-along') return;
+    const { currentBook, currentChapterIndex, position } = playback;
+    if (!currentBook || !readAlong.following || !readAlong.text) return;
+    // The estimate only needs to move about as often as a paragraph is read;
+    // re-deriving it on every progress tick would fight the reader's scrolling.
+    readAlong.syncTo(bookFraction(currentBook, currentChapterIndex, position));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    screen.id,
+    playback.currentChapterIndex,
+    Math.floor(playback.position / 15),
+    readAlong.following,
+    readAlong.text,
+  ]);
 
   // ─── Keyboard (desktop + accessibility) ───────────────────────────────
 
@@ -402,9 +459,15 @@ export default function IpodDevice() {
           handleRotate(-1);
           break;
         case 'Enter':
-        case ' ':
           e.preventDefault();
           run(handleSelect);
+          break;
+        // Space is the play/pause key everywhere else on the web, and the
+        // centre button no longer pauses now that it opens the reader.
+        case ' ':
+          if (screen.id === 'search') break; // space is a character while typing
+          e.preventDefault();
+          run(handlePlayPause);
           break;
         case 'Escape':
         case 'Backspace':
@@ -430,7 +493,7 @@ export default function IpodDevice() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [handleRotate, handleSelect, handleMenu, handleNext, handlePrevious, screen.id]);
+  }, [handleRotate, handleSelect, handleMenu, handleNext, handlePrevious, handlePlayPause, screen.id]);
 
   // ─── Persist playback position ────────────────────────────────────────
 
@@ -465,6 +528,8 @@ export default function IpodDevice() {
         return <ChaptersView cursor={cursor} />;
       case 'now-playing':
         return <NowPlayingView />;
+      case 'read-along':
+        return <ReadAlongView />;
       case 'focus':
         return <FocusView cursor={cursor} capability={webFocusGuard.capability} />;
       case 'sessions':

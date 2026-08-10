@@ -21,20 +21,34 @@ export function installWebPorts(): void {
 }
 
 /**
- * Browsers gate audio playback and the AudioContext behind a real user
- * gesture. Priming both on the first pointerdown means the wheel clicks and the
- * first play() both work, instead of the first tap being silently swallowed.
+ * Browsers gate audio playback and the AudioContext behind a real user gesture,
+ * so both are primed from the first interaction.
+ *
+ * The listener stays attached rather than firing once: iOS suspends the
+ * AudioContext again after any audio interruption (an incoming call, the app
+ * being backgrounded), and a one-shot unlock would leave the wheel silent for
+ * the rest of the session. Re-priming is a no-op once everything is running.
  */
 export function primeOnFirstGesture(): void {
+  let claimedStorage = false;
+
   const prime = () => {
     webAudio.unlock();
     webHaptics.unlock();
-    void requestPersistentStorage();
-    window.removeEventListener('pointerdown', prime);
-    window.removeEventListener('keydown', prime);
+    if (!claimedStorage) {
+      claimedStorage = true;
+      void requestPersistentStorage();
+    }
   };
-  window.addEventListener('pointerdown', prime, { once: false });
-  window.addEventListener('keydown', prime, { once: false });
+
+  // `capture` so priming happens before the wheel's own handlers run and the
+  // first detent of a drag already has sound.
+  window.addEventListener('pointerdown', prime, { capture: true });
+  window.addEventListener('keydown', prime, { capture: true });
+  // Coming back from the background is exactly when iOS has suspended us.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') prime();
+  });
 }
 
 export { webAudio, webDownloads, webFocusGuard, webHaptics, webStorage };

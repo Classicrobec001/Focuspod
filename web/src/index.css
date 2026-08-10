@@ -62,11 +62,14 @@ body,
   /* 100dvh tracks the collapsing mobile URL bar; without it the wheel sits
      under the browser chrome on first paint in Safari. */
   min-height: 100dvh;
+  overflow: hidden;
 }
 
 body {
   font-family: var(--font-ui);
-  background: #1a1a18;
+  /* Matches the device body so any rubber-band overscroll on iOS reveals more
+     casing rather than a dark strip behind it. */
+  background: var(--device-body);
   color: var(--row-text);
   overscroll-behavior: none;
   /* The wheel is a drag surface: stop the page rubber-banding under it and
@@ -79,32 +82,59 @@ body {
 
 /* ─── Device shell ──────────────────────────────────────────────────────── */
 
+/*
+ * On a phone the casing IS the screen: fixed to every edge, with the safe-area
+ * insets absorbed as the device's own top and bottom bezel. Nothing scrolls and
+ * no page background is ever visible, so the illusion holds all the way to the
+ * corners. Installing to the home screen removes the browser chrome and
+ * completes it.
+ */
 .device {
+  position: fixed;
+  inset: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: clamp(12px, 3vh, 28px);
-  height: 100%;
-  min-height: 100dvh;
-  padding: max(12px, env(safe-area-inset-top)) 16px
-    max(12px, env(safe-area-inset-bottom)) 16px;
-  background: linear-gradient(170deg, #f2f2ee 0%, var(--device-body) 45%, #dcdcd6 100%);
-  margin: 0 auto;
-  /* On a desktop or tablet the device stays phone-shaped instead of stretching
-     a click wheel across 1400px. */
-  max-width: 460px;
-  box-shadow: 0 0 60px rgba(0, 0, 0, 0.5);
+  padding: calc(env(safe-area-inset-top) + 10px) 14px
+    calc(env(safe-area-inset-bottom) + 8px) 14px;
+  background: linear-gradient(168deg, #f4f4f0 0%, var(--device-body) 42%, #d9d9d3 100%);
+  overflow: hidden;
+}
+
+/*
+ * Wider than a phone — desktop or tablet — so present an actual device sitting
+ * on a surface rather than stretching a click wheel across the viewport.
+ */
+@media (min-width: 620px) and (min-height: 640px) {
+  body {
+    background: #17171a;
+  }
+
+  .device {
+    inset: auto;
+    position: relative;
+    width: min(420px, 42vh);
+    height: min(860px, 94vh);
+    margin: max(0px, calc((100dvh - min(860px, 94vh)) / 2)) auto;
+    padding: 22px 18px 18px;
+    border-radius: 26px;
+    box-shadow:
+      0 0 0 1px rgba(0, 0, 0, 0.18),
+      0 24px 60px rgba(0, 0, 0, 0.55);
+  }
 }
 
 /* ─── LCD ───────────────────────────────────────────────────────────────── */
 
 .lcd {
   width: 100%;
+  /* Roughly the classic 4:3 screen, capped so it never crowds the wheel on a
+     short screen or float lost on a tall one. */
   flex: 0 0 auto;
-  height: clamp(220px, 38vh, 340px);
+  height: clamp(230px, 41vh, 380px);
   padding: 9px;
   background: var(--lcd-bezel);
-  border-radius: 6px;
+  border-radius: 7px;
   box-shadow:
     inset 0 1px 3px rgba(0, 0, 0, 0.6),
     0 1px 0 rgba(255, 255, 255, 0.7);
@@ -292,6 +322,50 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* ─── Read along ────────────────────────────────────────────────────────── */
+
+.reader {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 6px 8px 0;
+}
+
+.reader__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.reader__p {
+  /* Serif at a generous measure: this is the one screen meant for reading
+     rather than scanning a menu. */
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(11px, 2.9vw, 14px);
+  line-height: 1.45;
+  color: var(--row-text);
+  margin-bottom: 0.55em;
+  /* Later paragraphs fade out, so the eye lands on the current one and the
+     clipped bottom edge doesn't read as a cut-off word. */
+  opacity: 0.45;
+}
+
+.reader__p--current {
+  opacity: 1;
+}
+
+.reader__footer {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 0;
+  border-top: 1px solid var(--row-divider);
+  font-family: var(--font-lcd);
+  font-size: 0.72em;
+  color: var(--row-muted);
+}
+
 /* ─── Countdown ─────────────────────────────────────────────────────────── */
 
 .countdown {
@@ -332,12 +406,18 @@ body {
   justify-content: center;
   width: 100%;
   min-height: 0;
+  /* Absorbs whatever height is left between LCD and brand strip, so the wheel
+     is optically centred in the lower casing at any screen size. */
+  padding: 6px 0;
 }
 
 .wheel {
   position: relative;
   aspect-ratio: 1;
-  width: min(78vw, 46vh, 320px);
+  /* Fills the lower casing the way the real thing does. Bounded by height as
+     well as width so it never overlaps the LCD on a short screen. */
+  width: min(84vw, 100%, 42vh);
+  max-height: 100%;
   border-radius: 50%;
   background: radial-gradient(
     circle at 50% 32%,
@@ -358,6 +438,11 @@ body {
 
 .wheel__label {
   position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* currentColor is what the inline SVG glyphs inherit — this is the single
+     place the wheel's ink colour is set. */
   color: var(--wheel-label);
   font-size: clamp(9px, 2.4vw, 11px);
   font-weight: 700;
@@ -412,9 +497,10 @@ body {
 
 .brand {
   flex: 0 0 auto;
-  font-size: 12px;
-  letter-spacing: 0.16em;
-  color: #9a9a94;
+  padding-top: 2px;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: #a2a29c;
   font-weight: 600;
 }
 

@@ -17,6 +17,7 @@ export type ScreenId =
   | 'book-detail'
   | 'chapters'
   | 'now-playing'
+  | 'read-along'
   | 'focus'
   | 'sessions'
   | 'settings';
@@ -49,6 +50,7 @@ const ALL_SCREENS: ScreenId[] = [
   'book-detail',
   'chapters',
   'now-playing',
+  'read-along',
   'focus',
   'sessions',
   'settings',

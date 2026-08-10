@@ -38,6 +38,50 @@ export interface ClickWheelProps {
   disabled?: boolean;
 }
 
+/**
+ * Wheel glyphs as inline SVG rather than characters.
+ *
+ * ▶▶, ◀◀ and ❙❙ carry emoji presentation by default, so Android renders them
+ * through the colour emoji font — the labels come out blue-green and cartoonish
+ * while iOS draws them as plain glyphs. Text-presentation selectors (U+FE0E)
+ * are honoured inconsistently across Android versions. Drawing the shapes
+ * ourselves makes them identical everywhere and lets them inherit the wheel's
+ * ink colour.
+ */
+function TransportIcon({ kind }: { kind: 'next' | 'prev' | 'playpause' }) {
+  const common = {
+    height: '1em',
+    fill: 'currentColor',
+    'aria-hidden': true as const,
+    focusable: 'false' as const,
+  };
+  if (kind === 'playpause') {
+    return (
+      <svg {...common} viewBox="0 0 30 12" width="2.5em">
+        <path d="M1 1 L10 6 L1 11 Z" />
+        <rect x="17" y="1" width="3" height="10" rx="0.6" />
+        <rect x="23" y="1" width="3" height="10" rx="0.6" />
+      </svg>
+    );
+  }
+  const next = kind === 'next';
+  return (
+    <svg {...common} viewBox="0 0 22 12" width="1.9em">
+      {next ? (
+        <>
+          <path d="M1 1 L10 6 L1 11 Z" />
+          <path d="M11 1 L20 6 L11 11 Z" />
+        </>
+      ) : (
+        <>
+          <path d="M11 1 L2 6 L11 11 Z" />
+          <path d="M21 1 L12 6 L21 11 Z" />
+        </>
+      )}
+    </svg>
+  );
+}
+
 /** Degrees 0–360 with 0° at 12 o'clock, increasing clockwise. */
 function angleDeg(dx: number, dy: number): number {
   let deg = (Math.atan2(dy, dx) * 180) / Math.PI + 90;
@@ -203,9 +247,15 @@ export default function ClickWheel({
         aria-hidden="true"
       >
         <span className="wheel__label wheel__label--menu">MENU</span>
-        <span className="wheel__label wheel__label--next">▶▶</span>
-        <span className="wheel__label wheel__label--prev">◀◀</span>
-        <span className="wheel__label wheel__label--playpause">▶ ❙❙</span>
+        <span className="wheel__label wheel__label--next">
+          <TransportIcon kind="next" />
+        </span>
+        <span className="wheel__label wheel__label--prev">
+          <TransportIcon kind="prev" />
+        </span>
+        <span className="wheel__label wheel__label--playpause">
+          <TransportIcon kind="playpause" />
+        </span>
         <div className="wheel__center" />
       </div>
     </div>
