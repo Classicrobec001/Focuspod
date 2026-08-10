@@ -4,7 +4,7 @@
  */
 
 import { storage } from '../ports/registry';
-import { FocusSession, PlaybackState, UserPreferences } from '../types';
+import { Book, FocusSession, PlaybackState, UserPreferences } from '../types';
 
 const KEYS = {
   PREFERENCES: '@focuspod/preferences',
@@ -59,11 +59,19 @@ export async function appendSession(session: FocusSession): Promise<void> {
 
 // ─── Downloads ────────────────────────────────────────────────────────────
 
+/**
+ * A downloaded book's manifest.
+ *
+ * `book` is the whole hydrated record, not just display fields. Audio bytes are
+ * useless without the chapter list that names and orders them, and that list
+ * otherwise exists only inside a cached archive.org HTTP response — which
+ * expires and can be evicted, leaving downloaded audio unplayable. Storing the
+ * book here is what makes a download genuinely offline-complete.
+ */
 export interface PersistedDownload {
+  book: Book;
+  /** Chapter ids whose audio is actually stored. May be a subset of book.chapters. */
   chapterIds: string[];
-  bookTitle: string;
-  bookAuthor: string;
-  coverUrl: string;
 }
 
 export const loadDownloadIndex = async () =>

@@ -2,6 +2,9 @@ import { create } from 'zustand';
 import { Book } from '../types';
 import { fetchBook, fetchBooks, isHydrated } from '../services/archiveService';
 import { readCatalogCache, writeCatalogCache } from '../services/storage';
+// Downloads are the offline source of truth for a book. downloadStore has no
+// dependency on this module, so the import is one-directional.
+import { useDownloadStore } from './downloadStore';
 
 const PAGE_SIZE = 50;
 const MORE_SIZE = 20;
@@ -16,6 +19,19 @@ function isAbortError(e: unknown): boolean {
 
 /** Kept outside zustand state so replacing it never triggers a re-render. */
 let searchController: AbortController | null = null;
+
+/**
+ * Catalog requests fail for one reason far more often than any other: no
+ * connection. Raw fetch errors ("Failed to fetch", "NetworkError") tell the user
+ * nothing and hide the fact that their downloads still work.
+ */
+function catalogError(e: unknown): string {
+  const message = (e as Error)?.message ?? '';
+  const isNetwork = /fetch|network|load failed|connection/i.test(message);
+  return isNetwork
+    ? 'Could not reach the library. Downloaded books still work offline.'
+    : message || 'Something went wrong loading the library.';
+}
 
 interface LibraryState {
   books: Book[];
@@ -65,7 +81,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       if (isAbortError(e)) {
         console.warn('[Library] loadBooks timed out — will retry on next visit');
       } else {
-        set({ error: (e as Error).message });
+        set({ error: catalogError(e) });
       }
     } finally {
       set({ isLoading: false });
@@ -88,7 +104,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
         hasMore: next.length === MORE_SIZE,
       });
     } catch (e) {
-      if (!isAbortError(e)) set({ error: (e as Error).message });
+      if (!isAbortError(e)) set({ error: catalogError(e) });
     } finally {
       set({ isLoading: false });
     }
@@ -120,7 +136,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       void writeCatalogCache(`search:${trimmed}`, results);
     } catch (e) {
       if (isAbortError(e)) return; // superseded by a newer query
-      set({ error: (e as Error).message });
+      set({ error: catalogError(e) });
     } finally {
       if (searchController === controller) set({ isLoading: false });
     }
@@ -130,8 +146,17 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
    * Loads full detail for a book. Browse and search results carry no chapter
    * list (the Archive's search endpoint doesn't return file lists), so a
    * cached entry still needs hydrating before it can be played.
+   *
+   * A downloaded book is served from its offline manifest and never hits the
+   * network — that is what makes downloads work with the radio off.
    */
   selectBook: async (bookId: string) => {
+    const offline = useDownloadStore.getState().getOfflineBook(bookId);
+    if (offline) {
+      set({ selectedBook: offline, isLoading: false, error: null });
+      return;
+    }
+
     const { books, searchResults } = get();
     const known =
       books.find(b => b.id === bookId) ?? searchResults.find(b => b.id === bookId) ?? null;
@@ -155,7 +180,10 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
         searchResults: s.searchResults.map(b => (b.id === bookId ? full : b)),
       }));
     } catch (e) {
-      if (!isAbortError(e)) set({ error: (e as Error).message });
+      if (isAbortError(e)) return;
+      // Reaching here with no offline copy means the catalog is unreachable —
+      // usually no connection. Say what the user can still do about it.
+      set({ error: catalogError(e) });
     } finally {
       set({ isLoading: false });
     }

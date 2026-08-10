@@ -170,13 +170,17 @@ export function DownloadsView({ cursor }: { cursor: number }) {
         emptyMessage="No downloads yet"
         items={downloaded.map<MenuItem>(d => ({
           key: d.bookId,
-          label: d.bookTitle,
+          label: d.book.title,
+          // A partial download must never read as complete: it plays only up to
+          // the chapters that actually landed.
           meta:
             d.status === 'downloading'
               ? `${Math.round(d.progress * 100)}%`
               : d.status === 'done'
                 ? '✓'
-                : `${d.chapterIds.length}/${d.totalChapters}`,
+                : d.status === 'error'
+                  ? '!'
+                  : `${d.chapterIds.length}/${d.totalChapters}`,
           arrow: true,
         }))}
       />
@@ -213,7 +217,9 @@ export function BookDetailView({ cursor }: { cursor: number }) {
         ? 'Remove Download'
         : download?.status === 'error'
           ? 'Retry Download'
-          : 'Download';
+          : download?.status === 'partial'
+            ? `Resume (${download.chapterIds.length}/${download.totalChapters})`
+            : 'Download';
 
   return (
     <div className="panel">
@@ -227,6 +233,12 @@ export function BookDetailView({ cursor }: { cursor: number }) {
               ? 'Loading chapters…'
               : `${book.chapters.length} chapters · ${formatDuration(book.duration)}`}
           </div>
+          {download && download.status !== 'done' && download.chapterIds.length > 0 && (
+            <div className="status status--warning">
+              {download.chapterIds.length} of {download.totalChapters} available offline
+            </div>
+          )}
+          {download?.status === 'done' && <div className="status status--active">Available offline</div>}
         </div>
       </div>
       <div style={{ flex: 1, minHeight: 0 }}>
