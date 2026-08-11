@@ -186,6 +186,10 @@ body {
   min-height: 0;
   position: relative;
   overflow: hidden;
+  /* Column layout so a screen can put a status strip under its list. Without
+     it the list claims the full height and the strip is clipped away. */
+  display: flex;
+  flex-direction: column;
 }
 
 /* ─── Menu list ─────────────────────────────────────────────────────────── */
@@ -193,7 +197,8 @@ body {
 .menu {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .menu__row {
@@ -241,7 +246,8 @@ body {
 /* ─── Generic LCD panels ────────────────────────────────────────────────── */
 
 .panel {
-  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
   padding: 8px 10px;
   display: flex;
   flex-direction: column;
@@ -252,7 +258,8 @@ body {
 }
 
 .panel__center {
-  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -327,7 +334,8 @@ body {
 .reader {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
   padding: 6px 8px 0;
 }
 
