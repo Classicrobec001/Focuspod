@@ -117,6 +117,9 @@ export const analytics = {
   search: (scope: 'books' | 'podcasts', resultCount: number) =>
     track('search', { scope, result_count: resultCount }),
 
+  favorite: (added: boolean, kind: 'book' | 'podcast') =>
+    track('favorite', { added, kind }),
+
   install: () => track('pwa_install'),
 };
 

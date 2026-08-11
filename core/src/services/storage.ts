@@ -11,6 +11,7 @@ const KEYS = {
   PLAYBACK_STATE: '@focuspod/playback_state',
   SESSIONS: '@focuspod/sessions',
   DOWNLOADS: '@focuspod/downloads',
+  FAVORITES: '@focuspod/favorites',
   CATALOG_CACHE: '@focuspod/catalog_cache',
 } as const;
 
@@ -78,6 +79,19 @@ export const loadDownloadIndex = async () =>
   (await readJson<Record<string, PersistedDownload>>(KEYS.DOWNLOADS)) ?? {};
 export const saveDownloadIndex = (index: Record<string, PersistedDownload>) =>
   writeJson(KEYS.DOWNLOADS, index);
+
+// ─── Favourites ───────────────────────────────────────────────────────────
+
+export interface PersistedFavorite {
+  /** Stripped of its chapter list — see favoritesStore for why. */
+  book: Book;
+  addedAt: number;
+}
+
+export const loadFavorites = async () =>
+  (await readJson<Record<string, PersistedFavorite>>(KEYS.FAVORITES)) ?? {};
+export const saveFavorites = (items: Record<string, PersistedFavorite>) =>
+  writeJson(KEYS.FAVORITES, items);
 
 // ─── Catalog cache ────────────────────────────────────────────────────────
 

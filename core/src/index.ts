@@ -31,6 +31,7 @@ export {
   buildAlignment,
   estimateParagraph,
 } from './stores/readAlongStore';
+export { useFavoritesStore, listFavorites } from './stores/favoritesStore';
 export { useDownloadStore } from './stores/downloadStore';
 export type { DownloadStatus, BookDownloadState } from './stores/downloadStore';
 export { useIpodNavStore } from './stores/ipodNavStore';

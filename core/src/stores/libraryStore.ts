@@ -11,6 +11,7 @@ import { readCatalogCache, writeCatalogCache } from '../services/storage';
 // Downloads are the offline source of truth for a book. downloadStore has no
 // dependency on this module, so the import is one-directional.
 import { useDownloadStore } from './downloadStore';
+import { hydratePodcast, isPodcast } from '../services/podcastService';
 // AbortError is thrown both by the 15 s request timeout and by cancelling a
 // superseded search; neither should ever surface to the user as an error.
 import { isAbortError, isNetworkError } from '../utils/errors';
@@ -53,6 +54,12 @@ interface LibraryState {
   selectBook: (bookId: string) => Promise<void>;
   /** Show a book we already hold in full — podcasts arrive hydrated. */
   setSelectedBook: (book: Book) => void;
+  /**
+   * Open any book from any source: a favourite, a podcast, a downloaded copy or
+   * a catalog entry. Shows what is known immediately, then fills in chapters
+   * from whichever source can supply them.
+   */
+  openBook: (book: Book) => Promise<void>;
   clearSearch: () => void;
   clearError: () => void;
 }
@@ -216,6 +223,37 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   },
 
   setSelectedBook: book => set({ selectedBook: book, isLoading: false, error: null }),
+
+  openBook: async book => {
+    // Show the card straight away; chapters follow.
+    set({ selectedBook: book, error: null });
+    if (isHydrated(book)) return;
+
+    const offline = useDownloadStore.getState().getOfflineBook(book.id);
+    if (offline) {
+      set({ selectedBook: offline, isLoading: false });
+      return;
+    }
+
+    set({ isLoading: true });
+    try {
+      // Podcasts have no metadata endpoint to look a show up by id, so they are
+      // re-read from the feed url carried on the record itself.
+      const full = isPodcast(book.id)
+        ? await hydratePodcast(book)
+        : await fetchBook(book.id);
+      if (!full) {
+        set({ error: 'This is no longer available.' });
+        return;
+      }
+      set({ selectedBook: full });
+    } catch (e) {
+      if (isAbortError(e)) return;
+      set({ error: catalogError(e) });
+    } finally {
+      set({ isLoading: false });
+    }
+  },
 
   clearSearch: () => {
     searchController?.abort();

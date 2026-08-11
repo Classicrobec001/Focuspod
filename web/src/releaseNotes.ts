@@ -18,6 +18,13 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.6.0',
+    date: 'August 2026',
+    items: [
+      'Favourites: save any book or show and find it again from the main menu.',
+    ],
+  },
+  {
     version: '1.5.0',
     date: 'August 2026',
     items: [

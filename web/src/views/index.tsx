@@ -25,6 +25,8 @@ import {
   SORT_LABELS,
   PODCAST_TOPICS,
   usePodcastStore,
+  useFavoritesStore,
+  listFavorites,
 } from '@focuspod/core';
 import type { Book } from '@focuspod/core';
 import MenuList, { MenuItem } from '../components/MenuList';
@@ -38,6 +40,7 @@ export const HOME_ITEMS = [
   { key: 'genres', label: 'Genres' },
   { key: 'podcast-topics', label: 'Podcasts' },
   { key: 'search', label: 'Search' },
+  { key: 'favorites', label: 'Favourites' },
   { key: 'downloads', label: 'Downloads' },
   { key: 'now-playing', label: 'Now Playing' },
   { key: 'focus', label: 'Focus Session' },
@@ -326,10 +329,44 @@ export function DownloadsView({ cursor }: { cursor: number }) {
   );
 }
 
+// ─── Favourites ───────────────────────────────────────────────────────────
+
+export function FavoritesView({ cursor }: { cursor: number }) {
+  const items = useFavoritesStore(s => s.items);
+  // Derive here rather than in a selector: listFavorites builds a new array
+  // every call, which as a selector would re-render without end.
+  const favorites = useMemo(() => listFavorites(items), [items]);
+  const downloads = useDownloadStore(s => s.books);
+
+  return (
+    <>
+      <MenuList
+        cursor={cursor}
+        emptyMessage="No favourites yet"
+        items={favorites.map<MenuItem>(b => ({
+          key: b.id,
+          label: b.title,
+          // A favourite is only playable offline if it was also downloaded, so
+          // say which ones those are rather than letting it be discovered by
+          // tapping one on a train.
+          meta: downloads[b.id]?.status === 'done' ? '✓' : b.narrator,
+          arrow: true,
+        }))}
+      />
+      {favorites.length > 0 && (
+        <div className="status" style={{ padding: '2px 8px' }}>
+          {favorites.length} saved · ✓ available offline
+        </div>
+      )}
+    </>
+  );
+}
+
 // ─── Book detail ──────────────────────────────────────────────────────────
 
 export const BOOK_ACTIONS = [
   'Play',
+  'Favourite',
   'Start Focus Session',
   'Download',
   'Chapters',
@@ -341,6 +378,7 @@ export function BookDetailView({ cursor }: { cursor: number }) {
   const book = useLibraryStore(s => s.selectedBook);
   const isLoading = useLibraryStore(s => s.isLoading);
   const download = useDownloadStore(s => (book ? s.books[book.id] : undefined));
+  const isFavorite = useFavoritesStore(s => (book ? Boolean(s.items[book.id]) : false));
 
   if (!book) {
     return (
@@ -387,10 +425,18 @@ export function BookDetailView({ cursor }: { cursor: number }) {
       <div style={{ flex: 1, minHeight: 0 }}>
         <MenuList
           cursor={cursor}
-          items={BOOK_ACTIONS.map<MenuItem>((action, i) => ({
+          items={BOOK_ACTIONS.map<MenuItem>(action => ({
             key: action,
-            label: i === 2 ? downloadLabel : action,
-            arrow: i === 3,
+            label:
+              action === 'Download'
+                ? downloadLabel
+                : action === 'Favourite'
+                  ? isFavorite
+                    ? 'Remove from Favourites'
+                    : 'Add to Favourites'
+                  : action,
+            meta: action === 'Favourite' && isFavorite ? '★' : undefined,
+            arrow: action === 'Chapters' || action === 'Other Recordings',
           }))}
         />
       </div>

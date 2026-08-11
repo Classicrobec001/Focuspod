@@ -4,6 +4,7 @@ import {
   usePlaybackStore,
   useSessionStore,
   useSettingsStore,
+  useFavoritesStore,
 } from '@focuspod/core';
 import IpodDevice from './components/IpodDevice';
 import InstallPrompt from './components/InstallPrompt';
@@ -30,6 +31,7 @@ export default function App() {
       await useDownloadStore.getState().loadSaved();
       await usePlaybackStore.getState().initPlayer();
       await useSessionStore.getState().loadSessions();
+      await useFavoritesStore.getState().load();
       setReady(true);
       // Downloads stop when the tab closes or the connection drops. Pick up
       // where they left off once the UI is up, so the user never has to notice.

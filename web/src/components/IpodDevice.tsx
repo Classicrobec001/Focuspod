@@ -21,6 +21,8 @@ import {
   GENRES,
   PODCAST_TOPICS,
   usePodcastStore,
+  useFavoritesStore,
+  listFavorites,
   isPodcast,
   fetchVersions,
   type Book,
@@ -36,6 +38,7 @@ import {
   BOOK_ACTIONS,
   ChaptersView,
   DownloadsView,
+  FavoritesView,
   FocusView,
   GenresView,
   HomeMenuView,
@@ -81,6 +84,7 @@ export default function IpodDevice() {
   const settings = useSettingsStore();
   const readAlong = useReadAlongStore();
   const podcasts = usePodcastStore();
+  const favorites = useFavoritesStore();
 
   /** Search text is transient UI state — it never needs to outlive the screen. */
   const [searchQuery, setSearchQuery] = useState('');
@@ -118,6 +122,8 @@ export default function IpodDevice() {
           return 0; // a text field, not a cursor list
         case 'search-results':
           return library.searchResults.length;
+        case 'favorites':
+          return Object.keys(favorites.items).length;
         case 'downloads':
           return downloads.downloadedBooks().length;
         case 'book-detail':
@@ -142,7 +148,7 @@ export default function IpodDevice() {
           return 0;
       }
     },
-    [library.books, library.searchResults, library.selectedBook, downloads, session, podcasts.shows, versions],
+    [library.books, library.searchResults, library.selectedBook, downloads, session, podcasts.shows, versions, favorites.items],
   );
 
   // ─── Titles ───────────────────────────────────────────────────────────
@@ -163,6 +169,8 @@ export default function IpodDevice() {
         return 'Search';
       case 'search-results':
         return `Results (${library.searchResults.length})`;
+      case 'favorites':
+        return 'Favourites';
       case 'downloads':
         return 'Downloads';
       case 'book-detail':
@@ -271,6 +279,17 @@ export default function IpodDevice() {
         return;
       }
 
+      case 'favorites': {
+        const favorite = listFavorites(favorites.items)[index];
+        if (!favorite) return;
+        nav.resetCursor('book-detail');
+        nav.push('book-detail');
+        // openBook resolves chapters from downloads, the feed or the catalog,
+        // whichever applies to this record.
+        await library.openBook(favorite);
+        return;
+      }
+
       case 'downloads': {
         const entry = downloads.downloadedBooks()[index];
         if (entry) await openBook(entry.bookId);
@@ -308,6 +327,11 @@ export default function IpodDevice() {
             await playback.loadBook(book, 0);
             await playback.play();
             nav.push('now-playing');
+            return;
+          }
+          case 'Favourite': {
+            const nowFavorite = await favorites.toggle(book);
+            analytics.favorite(nowFavorite, isPodcast(book.id) ? 'podcast' : 'book');
             return;
           }
           case 'Start Focus Session': {
@@ -464,7 +488,7 @@ export default function IpodDevice() {
     // `podcasts` and `readAlong` are read for data here, not just actions, so
     // they must be dependencies — omitting them left handleSelect closing over
     // an empty show list, and selecting a podcast did nothing.
-  }, [screen.id, cursor, library, playback, session, downloads, settings, nav, openBook, podcasts, readAlong, versions]);
+  }, [screen.id, cursor, library, playback, session, downloads, settings, nav, openBook, podcasts, readAlong, versions, favorites]);
 
   /**
    * A tapped row. The cursor moves there first so the highlight matches what
@@ -683,6 +707,8 @@ export default function IpodDevice() {
         );
       case 'search-results':
         return <SearchResultsView cursor={cursor} />;
+      case 'favorites':
+        return <FavoritesView cursor={cursor} />;
       case 'downloads':
         return <DownloadsView cursor={cursor} />;
       case 'book-detail':
