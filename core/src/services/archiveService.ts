@@ -22,6 +22,7 @@
  */
 
 import { Book, Chapter } from '../types';
+import { isNetworkError } from '../utils/errors';
 
 const SEARCH_URL = 'https://archive.org/advancedsearch.php';
 const METADATA_URL = 'https://archive.org/metadata';
@@ -29,6 +30,60 @@ const DOWNLOAD_URL = 'https://archive.org/download';
 const COVER_URL = 'https://archive.org/services/img';
 const COLLECTION = 'librivoxaudio';
 const REQUEST_TIMEOUT_MS = 15_000;
+/** Pause before the single retry, to let a transient failure clear. */
+const RETRY_DELAY_MS = 800;
+
+/**
+ * How the browse list is ordered.
+ *
+ * 'popular' alone is why the library felt tiny: the collection holds ~21,700
+ * titles, but the most-downloaded page is always the same few dozen classics.
+ * 'recent' surfaces newly recorded titles, and genre browsing opens the rest.
+ */
+export type SortOption = 'popular' | 'recent' | 'title';
+
+const SORT_FIELDS: Record<SortOption, string> = {
+  popular: 'downloads desc',
+  // publicdate is when the recording was published to the Archive, so this is
+  // "newly recorded", not "newly written".
+  recent: 'publicdate desc',
+  title: 'titleSorter asc',
+};
+
+export const SORT_LABELS: Record<SortOption, string> = {
+  popular: 'Most popular',
+  recent: 'Recently added',
+  title: 'Title A–Z',
+};
+
+/**
+ * Browsable genres, with the counts observed in the collection. Drawn from the
+ * `subject` tags LibriVox applies; ordered so the largest, most useful
+ * categories come first rather than alphabetically.
+ */
+export const GENRES = [
+  { key: '', label: 'All books' },
+  { key: 'fiction', label: 'Fiction' },
+  { key: 'poetry', label: 'Poetry' },
+  { key: 'history', label: 'History' },
+  { key: 'children', label: "Children's" },
+  { key: 'romance', label: 'Romance' },
+  { key: 'adventure', label: 'Adventure' },
+  { key: 'philosophy', label: 'Philosophy' },
+  { key: 'war', label: 'War' },
+  { key: 'mystery', label: 'Mystery' },
+  { key: 'religion', label: 'Religion' },
+  { key: 'short stories', label: 'Short stories' },
+  { key: 'humor', label: 'Humour' },
+  { key: 'science fiction', label: 'Science fiction' },
+  { key: 'travel', label: 'Travel' },
+  { key: 'biography', label: 'Biography' },
+  { key: 'fantasy', label: 'Fantasy' },
+  { key: 'drama', label: 'Drama' },
+  { key: 'horror', label: 'Horror' },
+] as const;
+
+export type GenreKey = (typeof GENRES)[number]['key'];
 
 // ─── Raw response shapes ──────────────────────────────────────────────────
 // The Archive returns single-valued fields as a bare string and multi-valued
@@ -156,7 +211,7 @@ function toChapters(bookId: string, files: MetadataFile[]): Chapter[] {
 
 // ─── Requests ─────────────────────────────────────────────────────────────
 
-async function getJson<T>(url: string, externalSignal?: AbortSignal): Promise<T> {
+async function getJsonOnce<T>(url: string, externalSignal?: AbortSignal): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
@@ -177,6 +232,32 @@ async function getJson<T>(url: string, externalSignal?: AbortSignal): Promise<T>
     return (await response.json()) as T;
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/**
+ * The Archive drops a noticeable share of connections under load — measured at
+ * roughly one in three timing out during sustained use. A single retry turns
+ * most of those from a visible "couldn't reach the library" into a slightly
+ * slower load.
+ *
+ * Only connection-level failures are retried. A 4xx/5xx or a caller
+ * cancellation is left alone, since repeating those achieves nothing.
+ */
+async function getJson<T>(url: string, externalSignal?: AbortSignal): Promise<T> {
+  try {
+    return await getJsonOnce<T>(url, externalSignal);
+  } catch (error) {
+    // The caller cancelled (a superseded search): never retry.
+    if (externalSignal?.aborted) throw error;
+
+    // Retry a timeout or a dropped connection; an HTTP error status would only
+    // repeat itself.
+    const worthRetrying = (error as Error)?.name === 'AbortError' || isNetworkError(error);
+    if (!worthRetrying) throw error;
+
+    await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+    return getJsonOnce<T>(url, externalSignal);
   }
 }
 
@@ -227,7 +308,13 @@ export function isHydrated(book: Book): boolean {
 }
 
 export async function fetchBooks(
-  params: { search?: string; genre?: string; limit?: number; offset?: number },
+  params: {
+    search?: string;
+    genre?: string;
+    sort?: SortOption;
+    limit?: number;
+    offset?: number;
+  },
   signal?: AbortSignal,
 ): Promise<Book[]> {
   const limit = params.limit ?? 50;
@@ -245,15 +332,14 @@ export async function fetchBooks(
     ['fl[]', 'runtime'],
   ];
 
-  // Most-downloaded first gives a browsable front page of recognisable titles
-  // instead of an arbitrary slice of 21k items. Searches keep the backend's
-  // relevance ordering instead.
+  // A search keeps the backend's relevance ordering; browsing takes the
+  // requested sort, defaulting to most-downloaded.
   //
   // `sort[]` must be omitted rather than sent empty: `sort[]=` makes the
   // endpoint return an error envelope with no `response` key at all, which
   // reads as zero results.
   if (!params.search) {
-    query.push(['sort[]', 'downloads desc']);
+    query.push(['sort[]', SORT_FIELDS[params.sort ?? 'popular']]);
   }
 
   query.push(['rows', limit], ['page', page], ['output', 'json']);

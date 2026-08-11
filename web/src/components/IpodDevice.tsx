@@ -18,7 +18,9 @@ import {
   useReadAlongStore,
   useSessionStore,
   useSettingsStore,
-  bookFraction,
+  GENRES,
+  type GenreKey,
+  type SortOption,
   type ScreenId,
 } from '@focuspod/core';
 import ClickWheel from './ClickWheel';
@@ -30,6 +32,7 @@ import {
   ChaptersView,
   DownloadsView,
   FocusView,
+  GenresView,
   HomeMenuView,
   HOME_ITEMS,
   NowPlayingView,
@@ -89,6 +92,8 @@ export default function IpodDevice() {
           return HOME_ITEMS.length;
         case 'audiobooks':
           return library.books.length;
+        case 'genres':
+          return GENRES.length;
         case 'search':
           return SEARCH_ALPHABET.length;
         case 'search-results':
@@ -126,6 +131,8 @@ export default function IpodDevice() {
         return 'FocusPod';
       case 'audiobooks':
         return 'Audiobooks';
+      case 'genres':
+        return 'Genres';
       case 'search':
         return 'Search';
       case 'search-results':
@@ -178,6 +185,18 @@ export default function IpodDevice() {
       case 'audiobooks': {
         const book = library.books[cursor];
         if (book) await openBook(book.id);
+        return;
+      }
+
+      case 'genres': {
+        const genre = GENRES[cursor];
+        if (!genre) return;
+        // Navigate first, then fetch. Awaiting the network before pushing left
+        // the wheel looking dead for several seconds; this way the list screen
+        // appears at once and shows its own loading state.
+        nav.resetCursor('audiobooks');
+        nav.push('audiobooks');
+        await library.setGenre(genre.key as GenreKey);
         return;
       }
 
@@ -268,7 +287,7 @@ export default function IpodDevice() {
       case 'read-along': {
         const book = playback.currentBook;
         if (!book) return;
-        readAlong.syncTo(bookFraction(book, playback.currentChapterIndex, playback.position));
+        readAlong.syncToChapter(book, playback.currentChapterIndex, playback.position);
         return;
       }
 
@@ -313,6 +332,11 @@ export default function IpodDevice() {
           const keepAwake = !settings.preferences.keepAwake;
           webFocusGuard.setKeepAwake(keepAwake);
           await settings.update({ keepAwake });
+        }
+        if (row === 'sort') {
+          const order: SortOption[] = ['popular', 'recent', 'title'];
+          const next = order[(order.indexOf(library.sort) + 1) % order.length];
+          await library.setSort(next);
         }
         if (row === 'rate') {
           const i = PLAYBACK_RATES.indexOf(settings.preferences.playbackRate);
@@ -435,7 +459,7 @@ export default function IpodDevice() {
     if (!currentBook || !readAlong.following || !readAlong.text) return;
     // The estimate only needs to move about as often as a paragraph is read;
     // re-deriving it on every progress tick would fight the reader's scrolling.
-    readAlong.syncTo(bookFraction(currentBook, currentChapterIndex, position));
+    readAlong.syncToChapter(currentBook, currentChapterIndex, position);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     screen.id,
@@ -516,6 +540,8 @@ export default function IpodDevice() {
         return <HomeMenuView cursor={cursor} />;
       case 'audiobooks':
         return <AudiobooksView cursor={cursor} />;
+      case 'genres':
+        return <GenresView cursor={cursor} />;
       case 'search':
         return <SearchView cursor={cursor} query={searchQuery} />;
       case 'search-results':

@@ -21,6 +21,8 @@ import {
   useSettingsStore,
   FOCUS_DURATIONS,
   PLAYBACK_RATES,
+  GENRES,
+  SORT_LABELS,
 } from '@focuspod/core';
 import MenuList, { MenuItem } from '../components/MenuList';
 
@@ -28,6 +30,7 @@ import MenuList, { MenuItem } from '../components/MenuList';
 
 export const HOME_ITEMS = [
   { key: 'audiobooks', label: 'Audiobooks' },
+  { key: 'genres', label: 'Genres' },
   { key: 'search', label: 'Search' },
   { key: 'downloads', label: 'Downloads' },
   { key: 'now-playing', label: 'Now Playing' },
@@ -48,7 +51,8 @@ export function HomeMenuView({ cursor }: { cursor: number }) {
 // ─── Audiobooks ───────────────────────────────────────────────────────────
 
 export function AudiobooksView({ cursor }: { cursor: number }) {
-  const { books, isLoading, error } = useLibraryStore();
+  const { books, isLoading, error, genre, sort } = useLibraryStore();
+  const genreLabel = GENRES.find(g => g.key === genre)?.label ?? 'All books';
 
   if (error) {
     return (
@@ -68,13 +72,38 @@ export function AudiobooksView({ cursor }: { cursor: number }) {
   }
 
   return (
+    <>
+      <MenuList
+        cursor={cursor}
+        emptyMessage="No books found"
+        items={books.map<MenuItem>(b => ({
+          key: b.id,
+          label: b.title,
+          meta: b.duration > 0 ? formatDuration(b.duration) : undefined,
+          arrow: true,
+        }))}
+      />
+      {/* The active filter has to be visible, or a genre browse looks like the
+          whole library has shrunk. */}
+      <div className="status" style={{ padding: '2px 8px' }}>
+        {genreLabel} · {SORT_LABELS[sort]}
+        {isLoading ? ' · loading…' : ''}
+      </div>
+    </>
+  );
+}
+
+// ─── Genres ───────────────────────────────────────────────────────────────
+
+export function GenresView({ cursor }: { cursor: number }) {
+  const genre = useLibraryStore(s => s.genre);
+  return (
     <MenuList
       cursor={cursor}
-      emptyMessage="No books found"
-      items={books.map<MenuItem>(b => ({
-        key: b.id,
-        label: b.title,
-        meta: b.duration > 0 ? formatDuration(b.duration) : undefined,
+      items={GENRES.map<MenuItem>(g => ({
+        key: g.key || 'all',
+        label: g.label,
+        meta: g.key === genre ? '•' : undefined,
         arrow: true,
       }))}
     />
@@ -357,7 +386,8 @@ export function NowPlayingView() {
  * reader can scroll, which switches the estimate off until they resync.
  */
 export function ReadAlongView() {
-  const { text, isLoading, unavailable, error, cursor, following } = useReadAlongStore();
+  const { text, isLoading, unavailable, error, cursor, following, alignmentQuality } =
+    useReadAlongStore();
   const book = usePlaybackStore(s => s.currentBook);
 
   if (isLoading) {
@@ -402,7 +432,13 @@ export function ReadAlongView() {
         ))}
       </div>
       <div className="reader__footer">
-        <span>{following ? 'Following audio · estimated' : 'Manual scroll'}</span>
+        <span>
+          {following
+            ? alignmentQuality === 'chapter'
+              ? 'Following · chapter-aligned'
+              : 'Following · approximate'
+            : 'Manual scroll'}
+        </span>
         <span>{percent}%</span>
       </div>
     </div>
@@ -528,10 +564,18 @@ export function SessionsView({ cursor }: { cursor: number }) {
 
 // ─── Settings ─────────────────────────────────────────────────────────────
 
-export const SETTINGS_ROWS = ['haptics', 'keepAwake', 'rate', 'duration', 'storage'] as const;
+export const SETTINGS_ROWS = [
+  'haptics',
+  'keepAwake',
+  'rate',
+  'sort',
+  'duration',
+  'storage',
+] as const;
 
 export function SettingsView({ cursor }: { cursor: number }) {
   const prefs = useSettingsStore(s => s.preferences);
+  const sort = useLibraryStore(s => s.sort);
   const { usedBytes, quotaBytes } = useDownloadStore();
 
   const storageMeta =
@@ -543,6 +587,7 @@ export function SettingsView({ cursor }: { cursor: number }) {
     { key: 'haptics', label: 'Wheel clicks', meta: prefs.haptics ? 'On' : 'Off' },
     { key: 'keepAwake', label: 'Keep screen awake', meta: prefs.keepAwake ? 'On' : 'Off' },
     { key: 'rate', label: 'Playback speed', meta: `${prefs.playbackRate}×` },
+    { key: 'sort', label: 'Browse order', meta: SORT_LABELS[sort] },
     { key: 'duration', label: 'Default session', meta: `${prefs.defaultSessionDuration}m` },
     { key: 'storage', label: 'Offline storage', meta: storageMeta },
   ];

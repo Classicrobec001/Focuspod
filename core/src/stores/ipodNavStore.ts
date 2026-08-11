@@ -11,6 +11,7 @@ import { create } from 'zustand';
 export type ScreenId =
   | 'home'
   | 'audiobooks'
+  | 'genres'
   | 'search'
   | 'search-results'
   | 'downloads'
@@ -44,6 +45,7 @@ interface IpodNavState {
 const ALL_SCREENS: ScreenId[] = [
   'home',
   'audiobooks',
+  'genres',
   'search',
   'search-results',
   'downloads',

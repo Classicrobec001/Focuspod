@@ -1,6 +1,12 @@
 import { create } from 'zustand';
 import { Book } from '../types';
-import { fetchBook, fetchBooks, isHydrated } from '../services/archiveService';
+import {
+  fetchBook,
+  fetchBooks,
+  isHydrated,
+  type GenreKey,
+  type SortOption,
+} from '../services/archiveService';
 import { readCatalogCache, writeCatalogCache } from '../services/storage';
 // Downloads are the offline source of truth for a book. downloadStore has no
 // dependency on this module, so the import is one-directional.
@@ -28,6 +34,9 @@ function catalogError(e: unknown): string {
 
 interface LibraryState {
   books: Book[];
+  /** Active browse filters. Changing either refetches from the first page. */
+  genre: GenreKey;
+  sort: SortOption;
   searchResults: Book[];
   selectedBook: Book | null;
   isLoading: boolean;
@@ -38,6 +47,8 @@ interface LibraryState {
 
   loadBooks: () => Promise<void>;
   loadMore: () => Promise<void>;
+  setGenre: (genre: GenreKey) => Promise<void>;
+  setSort: (sort: SortOption) => Promise<void>;
   searchBooks: (query: string) => Promise<void>;
   selectBook: (bookId: string) => Promise<void>;
   clearSearch: () => void;
@@ -46,6 +57,8 @@ interface LibraryState {
 
 export const useLibraryStore = create<LibraryState>((set, get) => ({
   books: [],
+  genre: '',
+  sort: 'popular',
   searchResults: [],
   selectedBook: null,
   isLoading: false,
@@ -57,9 +70,14 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   loadBooks: async () => {
     if (get().books.length > 0) return;
 
+    const { genre, sort } = get();
+    // Cache per filter combination, otherwise switching genre would show the
+    // previous genre's cached page.
+    const cacheKey = `browse:${sort}:${genre}`;
+
     // Serve cache first so the list is instant on repeat visits, then refresh
     // in the background.
-    const cached = await readCatalogCache<Book[]>('browse');
+    const cached = await readCatalogCache<Book[]>(cacheKey);
     if (cached && cached.length > 0) {
       set({ books: cached, offset: cached.length, hasMore: true, isLoading: false });
       return;
@@ -67,9 +85,9 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
 
     set({ isLoading: true, error: null });
     try {
-      const books = await fetchBooks({ limit: PAGE_SIZE, offset: 0 });
+      const books = await fetchBooks({ limit: PAGE_SIZE, offset: 0, genre, sort });
       set({ books, offset: books.length, hasMore: books.length === PAGE_SIZE });
-      void writeCatalogCache('browse', books);
+      void writeCatalogCache(cacheKey, books);
     } catch (e) {
       if (isAbortError(e)) {
         console.warn('[Library] loadBooks timed out — will retry on next visit');
@@ -86,7 +104,8 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     if (isLoading || !hasMore || searchQuery) return;
     set({ isLoading: true });
     try {
-      const next = await fetchBooks({ limit: MORE_SIZE, offset });
+      const { genre, sort } = get();
+      const next = await fetchBooks({ limit: MORE_SIZE, offset, genre, sort });
       // The Archive paginates by page number, so a partial final page can
       // repeat items already held; drop those rather than showing duplicates.
       const known = new Set(books.map(b => b.id));
@@ -180,6 +199,18 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     } finally {
       set({ isLoading: false });
     }
+  },
+
+  setGenre: async genre => {
+    if (get().genre === genre) return;
+    set({ genre, books: [], offset: 0, hasMore: true, error: null });
+    await get().loadBooks();
+  },
+
+  setSort: async sort => {
+    if (get().sort === sort) return;
+    set({ sort, books: [], offset: 0, hasMore: true, error: null });
+    await get().loadBooks();
   },
 
   clearSearch: () => {

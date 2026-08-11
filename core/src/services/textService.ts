@@ -34,6 +34,17 @@ const MIN_TEXT_BYTES = 20_000;
 /** Guards against pulling a 20 MB concordance into a phone's memory. */
 const MAX_TEXT_BYTES = 3_000_000;
 
+/** A detected chapter in the printed text. */
+export interface TextSection {
+  heading: string;
+  /** Chapter number when one could be read from the heading. */
+  number: number | null;
+  /** Paragraph index of the heading. */
+  start: number;
+  /** Paragraph index after the last paragraph of this section. */
+  end: number;
+}
+
 export interface BookText {
   /** Archive identifier the text came from, for attribution. */
   identifier: string;
@@ -42,6 +53,14 @@ export interface BookText {
   paragraphs: string[];
   /** Total characters, used to estimate reading position. */
   length: number;
+  /** Chapters found in the text. Empty when none could be detected. */
+  sections: TextSection[];
+  /**
+   * Paragraph index where the book proper begins. Everything before it is
+   * front matter — title page, dedication, translator's preface — which the
+   * narrator usually skips and which otherwise skews the whole estimate.
+   */
+  bodyStart: number;
 }
 
 // ─── Requests ─────────────────────────────────────────────────────────────
@@ -163,6 +182,118 @@ function toParagraphs(raw: string): string[] {
   );
 }
 
+// ─── Chapter detection ────────────────────────────────────────────────────
+
+const ROMAN = /^[IVXLCDM]+$/i;
+const WORD_NUMBERS: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8,
+  nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14,
+  fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19,
+  twenty: 20,
+};
+
+function romanToInt(roman: string): number | null {
+  const values: Record<string, number> = { I: 1, V: 5, X: 10, L: 50, C: 100, D: 500, M: 1000 };
+  const upper = roman.toUpperCase();
+  let total = 0;
+  for (let i = 0; i < upper.length; i++) {
+    const current = values[upper[i]];
+    const next = values[upper[i + 1]];
+    if (current === undefined) return null;
+    total += next && next > current ? -current : current;
+  }
+  return total > 0 && total < 400 ? total : null;
+}
+
+/** Reads a chapter number from "IV", "12", "Seven" or a bare numeral. */
+export function parseChapterNumber(token: string): number | null {
+  const clean = token.trim().replace(/[.:—–-]+$/, '');
+  if (/^\d{1,3}$/.test(clean)) return Number(clean);
+  if (ROMAN.test(clean)) return romanToInt(clean);
+  const word = WORD_NUMBERS[clean.toLowerCase()];
+  return word ?? null;
+}
+
+/**
+ * Headings are short lines that announce a chapter. Kept deliberately strict:
+ * a false heading in the middle of prose would split a section and throw the
+ * alignment off worse than having no sections at all.
+ */
+const HEADING_PATTERNS: RegExp[] = [
+  // "Chapter IV", "BOOK 2", "Canto the First" — the word makes it unambiguous.
+  /^(?:chapter|chap\.?|letter|canto|book|part|act|scene|stave|lecture)\s+([0-9]{1,3}|[ivxlcdm]+|[a-z]+)\b/i,
+  // "IV. TACTICAL DISPOSITIONS" — a numeral followed by a short title. The
+  // trailing anchor is what keeps it from swallowing "I. Sun Tzu said: ..."
+  // and every other numbered line of prose.
+  /^([ivxlcdm]{1,7})[.:]?\s+[A-Z][A-Za-z'’\- ]{2,60}$/,
+  // A numeral alone on its own line.
+  /^([ivxlcdm]{1,7})\.?$/i,
+  /^([0-9]{1,3})\.?$/,
+];
+
+/**
+ * Deliberately does NOT treat "3. Some prose…" as a heading.
+ *
+ * Numbered verses and paragraphs are everywhere in translated and scriptural
+ * texts — The Art of War is numbered throughout — and matching them produced 66
+ * "chapters" in a 13-chapter book, which threw the alignment off by hundreds of
+ * paragraphs. A heading has to be a short standalone line.
+ */
+function detectHeading(paragraph: string): { number: number | null } | null {
+  if (paragraph.length > 90) return null;
+  for (const pattern of HEADING_PATTERNS) {
+    const match = paragraph.match(pattern);
+    if (match) return { number: parseChapterNumber(match[1] ?? '') };
+  }
+  return null;
+}
+
+/**
+ * Chapter numbers should climb. If the detected ones don't, the detector has
+ * latched onto something that merely looks like numbering, and the numbers are
+ * worse than useless — they would actively mis-map chapters. Dropping them
+ * falls back to order-based or proportional alignment, which degrade gracefully.
+ */
+function numbersLookLikeChapters(sections: TextSection[]): boolean {
+  const numbered = sections.filter(s => s.number !== null);
+  if (numbered.length < 3) return false;
+  let ascending = 0;
+  for (let i = 1; i < numbered.length; i++) {
+    if (numbered[i].number! > numbered[i - 1].number!) ascending++;
+  }
+  // Allow a few resets for books divided into parts, but the trend must hold.
+  return ascending / (numbered.length - 1) >= 0.8 && numbered[0].number! <= 3;
+}
+
+function detectSections(paragraphs: string[]): TextSection[] {
+  const found: Array<{ heading: string; number: number | null; start: number }> = [];
+  for (let i = 0; i < paragraphs.length; i++) {
+    const heading = detectHeading(paragraphs[i]);
+    if (heading) found.push({ heading: paragraphs[i], number: heading.number, start: i });
+  }
+
+  // Gutenberg texts repeat every chapter heading in a table of contents. Those
+  // copies sit close together near the front; the real ones are spread through
+  // the book. Dropping runs of headings with almost no prose between them
+  // removes the contents block without needing to recognise it.
+  const spaced = found.filter((section, i) => {
+    const next = found[i + 1];
+    return !next || next.start - section.start > 2;
+  });
+
+  const sections = spaced.map((section, i) => ({
+    heading: section.heading,
+    number: section.number,
+    start: section.start,
+    end: spaced[i + 1]?.start ?? paragraphs.length,
+  }));
+
+  // Keep the numbering only when it behaves like chapter numbering.
+  return numbersLookLikeChapters(sections)
+    ? sections
+    : sections.map(s => ({ ...s, number: null }));
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────
 
 /**
@@ -226,11 +357,16 @@ export async function fetchBookText(
         const paragraphs = toParagraphs(await textRes.text());
         if (paragraphs.length < 10) continue;
 
+        const sections = detectSections(paragraphs);
         return {
           identifier,
           quality,
           paragraphs,
           length: paragraphs.reduce((total, p) => total + p.length, 0),
+          sections,
+          // Anything before the first chapter is front matter the narrator
+          // generally doesn't read.
+          bodyStart: sections[0]?.start ?? 0,
         };
       }
     }

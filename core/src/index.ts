@@ -6,6 +6,8 @@ export type { CorePorts } from './ports/registry';
 export * as archiveService from './services/archiveService';
 export { isHydrated } from './services/archiveService';
 export { fetchBookText } from './services/textService';
+export { GENRES, SORT_LABELS } from './services/archiveService';
+export type { GenreKey, SortOption } from './services/archiveService';
 export type { BookText } from './services/textService';
 
 export { useLibraryStore } from './stores/libraryStore';
@@ -21,7 +23,12 @@ export {
   DEFAULT_PREFERENCES,
   PLAYBACK_RATES,
 } from './stores/settingsStore';
-export { useReadAlongStore, bookFraction } from './stores/readAlongStore';
+export {
+  useReadAlongStore,
+  bookFraction,
+  buildAlignment,
+  estimateParagraph,
+} from './stores/readAlongStore';
 export { useDownloadStore } from './stores/downloadStore';
 export type { DownloadStatus, BookDownloadState } from './stores/downloadStore';
 export { useIpodNavStore } from './stores/ipodNavStore';
