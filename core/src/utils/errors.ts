@@ -8,7 +8,9 @@
  */
 export function isNetworkError(e: unknown): boolean {
   const message = (e as Error)?.message ?? '';
-  return /failed to fetch|networkerror|network request failed|load failed|connection|err_internet|err_network/i.test(
+  // Node/undici words it the other way round ("fetch failed") from browsers
+  // ("Failed to fetch"), and wraps the real cause, so both orders are matched.
+  return /failed to fetch|fetch failed|networkerror|network request failed|load failed|connection|timeout|err_internet|err_network/i.test(
     message,
   );
 }

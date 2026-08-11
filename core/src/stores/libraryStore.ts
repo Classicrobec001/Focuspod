@@ -51,6 +51,8 @@ interface LibraryState {
   setSort: (sort: SortOption) => Promise<void>;
   searchBooks: (query: string) => Promise<void>;
   selectBook: (bookId: string) => Promise<void>;
+  /** Show a book we already hold in full — podcasts arrive hydrated. */
+  setSelectedBook: (book: Book) => void;
   clearSearch: () => void;
   clearError: () => void;
 }
@@ -212,6 +214,8 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     set({ sort, books: [], offset: 0, hasMore: true, error: null });
     await get().loadBooks();
   },
+
+  setSelectedBook: book => set({ selectedBook: book, isLoading: false, error: null }),
 
   clearSearch: () => {
     searchController?.abort();

@@ -9,6 +9,11 @@ export interface Book {
   categories: string[];
   chapters: Chapter[];
   duration: number; // total seconds
+  /**
+   * Set only for podcasts: the RSS feed the episode list comes from. LibriVox
+   * books derive their chapters from the Archive metadata endpoint instead.
+   */
+  feedUrl?: string;
 }
 
 export interface Chapter {

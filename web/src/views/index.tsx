@@ -8,7 +8,7 @@
  * about what the cursor selects.
  */
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import {
   formatDuration,
   formatTime,
@@ -23,6 +23,8 @@ import {
   PLAYBACK_RATES,
   GENRES,
   SORT_LABELS,
+  PODCAST_TOPICS,
+  usePodcastStore,
 } from '@focuspod/core';
 import MenuList, { MenuItem } from '../components/MenuList';
 
@@ -31,6 +33,7 @@ import MenuList, { MenuItem } from '../components/MenuList';
 export const HOME_ITEMS = [
   { key: 'audiobooks', label: 'Audiobooks' },
   { key: 'genres', label: 'Genres' },
+  { key: 'podcast-topics', label: 'Podcasts' },
   { key: 'search', label: 'Search' },
   { key: 'downloads', label: 'Downloads' },
   { key: 'now-playing', label: 'Now Playing' },
@@ -110,27 +113,124 @@ export function GenresView({ cursor }: { cursor: number }) {
   );
 }
 
+// ─── Podcasts ─────────────────────────────────────────────────────────────
+
+export function PodcastTopicsView({ cursor }: { cursor: number }) {
+  return (
+    <>
+      <MenuList
+        cursor={cursor}
+        items={PODCAST_TOPICS.map<MenuItem>(t => ({ key: t.key, label: t.label, arrow: true }))}
+      />
+      <div className="status" style={{ padding: '2px 8px' }}>
+        Current shows on modern subjects
+      </div>
+    </>
+  );
+}
+
+export function PodcastShowsView({ cursor }: { cursor: number }) {
+  const { shows, isLoading, error, checked, total } = usePodcastStore();
+
+  if (error) {
+    return (
+      <div className="panel__center">
+        <span className="panel__title">Couldn't load podcasts</span>
+        <span className="panel__note">{error}</span>
+      </div>
+    );
+  }
+  if (isLoading) {
+    return (
+      <div className="panel__center">
+        <span className="panel__subtitle">Finding shows…</span>
+        {total > 0 && (
+          <span className="panel__note">
+            checked {checked} of {total}
+          </span>
+        )}
+        {/* Explains the wait, and why some shows never appear. */}
+        <span className="panel__note">Only shows that can play here are listed.</span>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <MenuList
+        cursor={cursor}
+        emptyMessage="No playable shows found"
+        items={shows.map<MenuItem>(s => ({
+          key: s.id,
+          label: s.title,
+          meta: s.chapters.length ? `${s.chapters.length}` : undefined,
+          arrow: true,
+        }))}
+      />
+      {shows.length > 0 && (
+        <div className="status" style={{ padding: '2px 8px' }}>
+          {shows.length} shows · episodes newest last
+        </div>
+      )}
+    </>
+  );
+}
+
 // ─── Search ───────────────────────────────────────────────────────────────
 
 /**
- * Search is typed on a hardware keyboard where one exists, and otherwise built
- * a letter at a time with the wheel — rotate to move through the alphabet,
- * centre to commit. The original iPod did exactly this.
+ * Search uses a real text field.
+ *
+ * The wheel-alphabet approach was authentic to the device and miserable to use:
+ * spelling "psychology" meant eleven separate rotate-and-click sequences. A
+ * focused <input> brings up the phone's own keyboard, which is what people
+ * expect and what makes the far larger catalog actually searchable.
  */
-export const SEARCH_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ';
-
-export function SearchView({ cursor, query }: { cursor: number; query: string }) {
+export function SearchView({
+  query,
+  onQueryChange,
+  onSubmit,
+  scope,
+}: {
+  query: string;
+  onQueryChange: (value: string) => void;
+  onSubmit: () => void;
+  scope: 'books' | 'podcasts';
+}) {
   const { searchResults, isLoading, searchQuery } = useLibraryStore();
-  const letter = SEARCH_ALPHABET[cursor % SEARCH_ALPHABET.length];
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Focus on entry so the keyboard appears without a second tap. iOS only
+  // raises it for a focus that happens inside a user gesture, and arriving here
+  // is one (the centre button press).
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
 
   return (
     <div className="panel">
-      <div>
-        <span className="panel__title">{query || '…'}</span>
-        <span className="panel__subtitle"> {letter === ' ' ? '␣' : letter}</span>
-      </div>
+      <input
+        ref={inputRef}
+        className="search__input"
+        value={query}
+        onChange={e => onQueryChange(e.target.value)}
+        onKeyDown={e => {
+          // Keep the device keys working while typing; everything else is text.
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            onSubmit();
+          }
+          e.stopPropagation();
+        }}
+        placeholder={scope === 'podcasts' ? 'Search podcasts' : 'Search title or author'}
+        enterKeyHint="search"
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
+        aria-label={scope === 'podcasts' ? 'Search podcasts' : 'Search audiobooks'}
+      />
       <span className="panel__note">
-        Rotate for letters · centre adds · ▶▶ searches · ◀◀ deletes
+        {scope === 'podcasts' ? 'Podcasts' : 'Audiobooks'} · press Enter or ▶▶ to search
       </span>
       <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
         {isLoading ? (
@@ -146,7 +246,7 @@ export function SearchView({ cursor, query }: { cursor: number; query: string })
             }))}
           />
         ) : (
-          <span className="panel__note">Type a title or author, then press ▶▶.</span>
+          <span className="panel__note">Results appear here.</span>
         )}
       </div>
     </div>

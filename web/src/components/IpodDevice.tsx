@@ -19,6 +19,8 @@ import {
   useSessionStore,
   useSettingsStore,
   GENRES,
+  PODCAST_TOPICS,
+  usePodcastStore,
   type GenreKey,
   type SortOption,
   type ScreenId,
@@ -34,12 +36,13 @@ import {
   FocusView,
   GenresView,
   HomeMenuView,
+  PodcastShowsView,
+  PodcastTopicsView,
   HOME_ITEMS,
   NowPlayingView,
   ReadAlongView,
   SearchResultsView,
   SearchView,
-  SEARCH_ALPHABET,
   SessionsView,
   SettingsView,
   SETTINGS_ROWS,
@@ -68,6 +71,7 @@ export default function IpodDevice() {
   const downloads = useDownloadStore();
   const settings = useSettingsStore();
   const readAlong = useReadAlongStore();
+  const podcasts = usePodcastStore();
 
   /** Search text is transient UI state — it never needs to outlive the screen. */
   const [searchQuery, setSearchQuery] = useState('');
@@ -94,8 +98,12 @@ export default function IpodDevice() {
           return library.books.length;
         case 'genres':
           return GENRES.length;
+        case 'podcast-topics':
+          return PODCAST_TOPICS.length;
+        case 'podcast-shows':
+          return podcasts.shows.length;
         case 'search':
-          return SEARCH_ALPHABET.length;
+          return 0; // a text field, not a cursor list
         case 'search-results':
           return library.searchResults.length;
         case 'downloads':
@@ -120,7 +128,7 @@ export default function IpodDevice() {
           return 0;
       }
     },
-    [library.books, library.searchResults, library.selectedBook, downloads, session],
+    [library.books, library.searchResults, library.selectedBook, downloads, session, podcasts.shows],
   );
 
   // ─── Titles ───────────────────────────────────────────────────────────
@@ -133,6 +141,10 @@ export default function IpodDevice() {
         return 'Audiobooks';
       case 'genres':
         return 'Genres';
+      case 'podcast-topics':
+        return 'Podcasts';
+      case 'podcast-shows':
+        return PODCAST_TOPICS.find(t => t.key === podcasts.topic)?.label ?? 'Shows';
       case 'search':
         return 'Search';
       case 'search-results':
@@ -156,7 +168,7 @@ export default function IpodDevice() {
       default:
         return 'FocusPod';
     }
-  }, [screen.id, library.searchResults.length, library.selectedBook, session.currentSession]);
+  }, [screen.id, library.searchResults.length, library.selectedBook, session.currentSession, podcasts.topic]);
 
   // ─── Select (centre button) ───────────────────────────────────────────
 
@@ -206,8 +218,28 @@ export default function IpodDevice() {
         return;
       }
 
-      case 'search': {
-        setSearchQuery(q => (q + SEARCH_ALPHABET[cursor % SEARCH_ALPHABET.length]).slice(0, 40));
+      // The search screen is a text field; the centre button submits it.
+      case 'search':
+        await handleNext();
+        return;
+
+      case 'podcast-topics': {
+        const topic = PODCAST_TOPICS[cursor];
+        if (!topic) return;
+        nav.resetCursor('podcast-shows');
+        nav.push('podcast-shows');
+        await podcasts.loadTopic(topic.key);
+        return;
+      }
+
+      case 'podcast-shows': {
+        const show = podcasts.shows[cursor];
+        if (!show) return;
+        // Shows arrive already hydrated by the verification pass, so the detail
+        // screen can be shown straight away with no second fetch.
+        library.setSelectedBook(show);
+        nav.resetCursor('book-detail');
+        nav.push('book-detail');
         return;
       }
 
@@ -358,7 +390,10 @@ export default function IpodDevice() {
         return;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [screen.id, cursor, library, playback, session, downloads, settings, nav, openBook]);
+    // `podcasts` and `readAlong` are read for data here, not just actions, so
+    // they must be dependencies — omitting them left handleSelect closing over
+    // an empty show list, and selecting a podcast did nothing.
+  }, [screen.id, cursor, library, playback, session, downloads, settings, nav, openBook, podcasts, readAlong]);
 
   /** Creates and starts a session, and begins the chosen book if there is one. */
   const startSession = useCallback(async () => {
@@ -473,6 +508,12 @@ export default function IpodDevice() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // While a text field has focus the keyboard belongs to it. Without this,
+      // typing would be duplicated into the search buffer and Backspace would
+      // be swallowed as a Back action, making the field impossible to edit.
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.isContentEditable)) return;
+
       switch (e.key) {
         case 'ArrowDown':
           e.preventDefault();
@@ -489,7 +530,6 @@ export default function IpodDevice() {
         // Space is the play/pause key everywhere else on the web, and the
         // centre button no longer pauses now that it opens the reader.
         case ' ':
-          if (screen.id === 'search') break; // space is a character while typing
           e.preventDefault();
           run(handlePlayPause);
           break;
@@ -507,12 +547,7 @@ export default function IpodDevice() {
           run(handlePrevious);
           break;
         default:
-          // Typing goes straight into the search buffer where a real keyboard
-          // exists — far quicker than spelling with the wheel.
-          if (screen.id === 'search' && e.key.length === 1) {
-            e.preventDefault();
-            setSearchQuery(q => (q + e.key.toUpperCase()).slice(0, 40));
-          }
+          break;
       }
     };
     window.addEventListener('keydown', onKey);
@@ -542,8 +577,19 @@ export default function IpodDevice() {
         return <AudiobooksView cursor={cursor} />;
       case 'genres':
         return <GenresView cursor={cursor} />;
+      case 'podcast-topics':
+        return <PodcastTopicsView cursor={cursor} />;
+      case 'podcast-shows':
+        return <PodcastShowsView cursor={cursor} />;
       case 'search':
-        return <SearchView cursor={cursor} query={searchQuery} />;
+        return (
+          <SearchView
+            query={searchQuery}
+            onQueryChange={setSearchQuery}
+            onSubmit={() => run(handleNext)}
+            scope="books"
+          />
+        );
       case 'search-results':
         return <SearchResultsView cursor={cursor} />;
       case 'downloads':

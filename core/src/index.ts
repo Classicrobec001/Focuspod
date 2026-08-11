@@ -7,6 +7,8 @@ export * as archiveService from './services/archiveService';
 export { isHydrated } from './services/archiveService';
 export { fetchBookText } from './services/textService';
 export { GENRES, SORT_LABELS } from './services/archiveService';
+export { PODCAST_TOPICS, isPodcast } from './services/podcastService';
+export { usePodcastStore } from './stores/podcastStore';
 export type { GenreKey, SortOption } from './services/archiveService';
 export type { BookText } from './services/textService';
 

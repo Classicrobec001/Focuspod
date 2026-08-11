@@ -329,6 +329,33 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* ─── Search field ──────────────────────────────────────────────────────── */
+
+.search__input {
+  width: 100%;
+  flex: 0 0 auto;
+  padding: 6px 8px;
+  border: 1px solid var(--row-divider);
+  border-radius: 3px;
+  background: #dfe7d9;
+  color: var(--row-text);
+  font-family: var(--font-lcd);
+  font-size: clamp(13px, 3.4vw, 16px);
+  /* Under 16px iOS Safari zooms the page on focus and the device shell breaks
+     out of the viewport; the clamp floor keeps that from happening. */
+  outline: none;
+}
+
+.search__input:focus {
+  border-color: var(--lcd-titlebar-bg);
+  box-shadow: inset 0 0 0 1px var(--lcd-titlebar-bg);
+}
+
+.search__input::placeholder {
+  color: var(--row-muted);
+  opacity: 0.8;
+}
+
 /* ─── Read along ────────────────────────────────────────────────────────── */
 
 .reader {
