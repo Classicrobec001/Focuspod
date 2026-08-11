@@ -18,6 +18,15 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.5.0',
+    date: 'August 2026',
+    items: [
+      'Choose a different reader: Other Recordings on any book lists the other LibriVox readings, by narrator.',
+      'The narrator is shown on the book screen where LibriVox states one.',
+      'New versions of the app now load straight away instead of waiting for a later visit.',
+    ],
+  },
+  {
     version: '1.4.0',
     date: 'August 2026',
     items: [

@@ -22,6 +22,8 @@ import {
   PODCAST_TOPICS,
   usePodcastStore,
   isPodcast,
+  fetchVersions,
+  type Book,
   type GenreKey,
   type SortOption,
   type ScreenId,
@@ -46,6 +48,7 @@ import {
   SearchView,
   SessionsView,
   SettingsView,
+  VersionsView,
   settingsRows,
   WhatsNewView,
   AboutView,
@@ -81,6 +84,9 @@ export default function IpodDevice() {
 
   /** Search text is transient UI state — it never needs to outlive the screen. */
   const [searchQuery, setSearchQuery] = useState('');
+  /** Alternate recordings of the open book; fetched on demand. */
+  const [versions, setVersions] = useState<Book[]>([]);
+  const [versionsLoading, setVersionsLoading] = useState(false);
 
   // ─── Data loading on entry ────────────────────────────────────────────
 
@@ -118,6 +124,8 @@ export default function IpodDevice() {
           return BOOK_ACTIONS.length;
         case 'chapters':
           return library.selectedBook?.chapters.length ?? 0;
+        case 'versions':
+          return versions.length;
         case 'sessions':
           return session.sessions.length;
         case 'settings':
@@ -134,7 +142,7 @@ export default function IpodDevice() {
           return 0;
       }
     },
-    [library.books, library.searchResults, library.selectedBook, downloads, session, podcasts.shows],
+    [library.books, library.searchResults, library.selectedBook, downloads, session, podcasts.shows, versions],
   );
 
   // ─── Titles ───────────────────────────────────────────────────────────
@@ -161,6 +169,8 @@ export default function IpodDevice() {
         return library.selectedBook?.title ?? 'Book';
       case 'chapters':
         return 'Chapters';
+      case 'versions':
+        return 'Other Recordings';
       case 'now-playing':
         return 'Now Playing';
       case 'read-along':
@@ -267,6 +277,17 @@ export default function IpodDevice() {
         return;
       }
 
+      case 'versions': {
+        const chosen = versions[index];
+        if (!chosen) return;
+        // Replace the open book with the chosen reading and return to detail,
+        // so Play/Download/Read Along all act on the recording just picked.
+        nav.pop();
+        nav.resetCursor('book-detail');
+        await library.selectBook(chosen.id);
+        return;
+      }
+
       case 'chapters': {
         const book = library.selectedBook;
         if (!book || book.chapters.length === 0) return;
@@ -315,6 +336,21 @@ export default function IpodDevice() {
             }
             nav.push('read-along');
             await readAlong.load(book);
+            return;
+          }
+          case 'Other Recordings': {
+            // Podcasts have no alternate readings — there is one recording.
+            if (isPodcast(book.id)) return;
+            nav.resetCursor('versions');
+            nav.push('versions');
+            setVersionsLoading(true);
+            try {
+              setVersions(await fetchVersions(book));
+            } catch {
+              setVersions([]);
+            } finally {
+              setVersionsLoading(false);
+            }
             return;
           }
           case 'Chapters': {
@@ -428,7 +464,7 @@ export default function IpodDevice() {
     // `podcasts` and `readAlong` are read for data here, not just actions, so
     // they must be dependencies — omitting them left handleSelect closing over
     // an empty show list, and selecting a podcast did nothing.
-  }, [screen.id, cursor, library, playback, session, downloads, settings, nav, openBook, podcasts, readAlong]);
+  }, [screen.id, cursor, library, playback, session, downloads, settings, nav, openBook, podcasts, readAlong, versions]);
 
   /**
    * A tapped row. The cursor moves there first so the highlight matches what
@@ -653,6 +689,8 @@ export default function IpodDevice() {
         return <BookDetailView cursor={cursor} />;
       case 'chapters':
         return <ChaptersView cursor={cursor} />;
+      case 'versions':
+        return <VersionsView cursor={cursor} versions={versions} isLoading={versionsLoading} />;
       case 'now-playing':
         return <NowPlayingView />;
       case 'read-along':

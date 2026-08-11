@@ -19,6 +19,7 @@ export type ScreenId =
   | 'downloads'
   | 'book-detail'
   | 'chapters'
+  | 'versions'
   | 'now-playing'
   | 'read-along'
   | 'focus'
@@ -57,6 +58,7 @@ const ALL_SCREENS: ScreenId[] = [
   'downloads',
   'book-detail',
   'chapters',
+  'versions',
   'now-playing',
   'read-along',
   'focus',

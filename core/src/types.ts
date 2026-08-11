@@ -14,6 +14,12 @@ export interface Book {
    * books derive their chapters from the Archive metadata endpoint instead.
    */
   feedUrl?: string;
+  /**
+   * Who reads the recording. LibriVox does not publish this as a field — the
+   * Archive's `creator` is the *author* — so it is extracted from the
+   * description where stated, and absent otherwise.
+   */
+  narrator?: string;
 }
 
 export interface Chapter {

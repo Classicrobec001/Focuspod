@@ -171,6 +171,28 @@ function list(value: MaybeList): string[] {
   return value.split(',').map(s => s.trim()).filter(Boolean);
 }
 
+/**
+ * Pulls the narrator out of a LibriVox description.
+ *
+ * The Archive has no reader field: `creator` is the book's author. LibriVox
+ * volunteers state it in prose instead — "Read by Cori Samuel" — so that is
+ * what this reads. It is absent on collaborative recordings, where no single
+ * name applies, and callers must treat it as optional.
+ *
+ * Initials are allowed through ("Thomas A. Copeland") but a full stop that ends
+ * the sentence is not, or the match runs on into the next one.
+ */
+export function extractNarrator(description: string): string | undefined {
+  const match = description.match(
+    /(?:read|narrated|recorded)\s+(?:for\s+librivox\s+)?by[:\s]+([A-Za-z'’\-]+(?:\s+(?:[A-Z]\.|[A-Za-z'’\-]+)){0,3})/i,
+  );
+  const name = match?.[1]?.trim();
+  if (!name || name.length < 2 || name.length > 40) return undefined;
+  // "read by LibriVox volunteers" names no one in particular.
+  if (/^(librivox|various|volunteers?)$/i.test(name)) return undefined;
+  return name;
+}
+
 function stripHtml(html: string): string {
   return html
     .replace(/<[^>]*>/g, ' ')
@@ -333,11 +355,13 @@ function buildQuery(search?: string, genre?: string): string {
 // ─── Public API ───────────────────────────────────────────────────────────
 
 function searchDocToBook(doc: SearchDoc): Book {
+  const description = stripHtml(first(doc.description));
   return {
     id: doc.identifier,
     title: first(doc.title) || doc.identifier,
     author: first(doc.creator) || 'Unknown',
-    description: stripHtml(first(doc.description)),
+    narrator: extractNarrator(description),
+    description,
     coverUrl: `${COVER_URL}/${encodeURIComponent(doc.identifier)}`,
     categories: list(doc.subject).slice(0, 6),
     chapters: [],
@@ -398,6 +422,82 @@ export async function fetchBooks(
 }
 
 /**
+ * Other recordings of the same book.
+ *
+ * LibriVox is volunteer-read, so popular titles exist many times over —
+ * Frankenstein has ten — and the readings differ enormously in voice, pace and
+ * audio quality. Being able to pick a different reader is the difference
+ * between a book being listenable and not.
+ *
+ * Matched on title rather than any identifier, because the Archive has no
+ * concept of "another recording of this work". The book itself is excluded.
+ */
+export async function fetchVersions(
+  book: { id: string; title: string; author: string },
+  signal?: AbortSignal,
+): Promise<Book[]> {
+  const author = book.author?.trim();
+  const stem = titleWords(book.title);
+  if (stem.length === 0) return [];
+
+  // Search by author, not by title.
+  //
+  // Titles diverge wildly between recordings of the same work — "Frankenstein",
+  // "Frankenstein; or, The Modern Prometheus", "Frankenstein oder Der moderne
+  // Prometheus" — so a title query matches only the exact wording it was given
+  // and returns nothing. An author's catalogue is small enough to fetch and
+  // filter here, where the titles can be compared properly.
+  const query =
+    author && author !== 'Unknown'
+      ? `collection:${COLLECTION} AND creator:("${escapeLucene(author.split(',')[0].trim())}")`
+      : `collection:${COLLECTION} AND title:("${escapeLucene(stem[0])}")`;
+
+  const url =
+    `${SEARCH_URL}?` +
+    queryString([
+      ['q', query],
+      ['fl[]', 'identifier'],
+      ['fl[]', 'title'],
+      ['fl[]', 'creator'],
+      ['fl[]', 'description'],
+      ['fl[]', 'runtime'],
+      ['sort[]', 'downloads desc'],
+      ['rows', 60],
+      ['page', 1],
+      ['output', 'json'],
+    ]);
+
+  const json = await getJson<{ response?: { docs?: SearchDoc[] } }>(url, signal);
+  return (json.response?.docs ?? [])
+    .filter(d => d.identifier && d.identifier !== book.id)
+    .filter(d => sharesTitle(stem, titleWords(first(d.title))))
+    .map(searchDocToBook)
+    .slice(0, 15);
+}
+
+/** Distinctive words of a title, with edition and version qualifiers removed. */
+function titleWords(title: string): string[] {
+  return title
+    .toLowerCase()
+    .replace(/\((?:version|dramatic reading|edition|abridged)[^)]*\)/g, ' ')
+    .replace(/\b(?:or|the|a|an|of|and|der|die|das|le|la|el|version|edition|vol|volume)\b/g, ' ')
+    .replace(/[^a-z\u00c0-\u024f ]+/g, ' ')
+    .split(/\s+/)
+    .filter(w => w.length > 3);
+}
+
+/**
+ * Whether two titles name the same work. One shared distinctive word is enough:
+ * translations keep the proper noun ("Frankenstein", "Prometheus") while
+ * everything around it changes.
+ */
+function sharesTitle(a: string[], b: string[]): boolean {
+  if (a.length === 0 || b.length === 0) return false;
+  const other = new Set(b);
+  return a.some(word => other.has(word));
+}
+
+/**
  * Full detail for one item, including chapters. Safe to call on a book that
  * came from `fetchBooks` — it replaces the unhydrated placeholder.
  */
@@ -413,12 +513,14 @@ export async function fetchBook(id: string, signal?: AbortSignal): Promise<Book 
   const meta = json.metadata;
   const chapters = toChapters(id, json.files ?? []);
   const runtime = parseDuration(first(meta.runtime));
+  const description = stripHtml(first(meta.description));
 
   return {
     id,
     title: first(meta.title) || id,
     author: first(meta.creator) || 'Unknown',
-    description: stripHtml(first(meta.description)),
+    narrator: extractNarrator(description),
+    description,
     coverUrl: `${COVER_URL}/${encodeURIComponent(id)}`,
     categories: list(meta.subject).slice(0, 6),
     chapters,

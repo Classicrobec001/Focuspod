@@ -26,6 +26,7 @@ import {
   PODCAST_TOPICS,
   usePodcastStore,
 } from '@focuspod/core';
+import type { Book } from '@focuspod/core';
 import MenuList, { MenuItem } from '../components/MenuList';
 import { RELEASE_NOTES, hasUnreadNotes } from '../releaseNotes';
 import { analyticsConfigured } from '../analytics';
@@ -332,6 +333,7 @@ export const BOOK_ACTIONS = [
   'Start Focus Session',
   'Download',
   'Chapters',
+  'Other Recordings',
   'Read Along',
 ] as const;
 
@@ -365,7 +367,10 @@ export function BookDetailView({ cursor }: { cursor: number }) {
         <BookCover book={book} />
         <div style={{ minWidth: 0, flex: 1 }}>
           <div className="panel__title">{book.title}</div>
-          <div className="panel__subtitle">{book.author}</div>
+          <div className="panel__subtitle">
+            {book.author}
+            {book.narrator ? ` · read by ${book.narrator}` : ''}
+          </div>
           <div className="status">
             {isLoading && book.chapters.length === 0
               ? 'Loading chapters…'
@@ -424,6 +429,53 @@ export function ChaptersView({ cursor }: { cursor: number }) {
         meta: c.duration > 0 ? formatTime(c.duration) : undefined,
       }))}
     />
+  );
+}
+
+// ─── Other recordings ─────────────────────────────────────────────────────
+
+/**
+ * Alternate readings of the same book.
+ *
+ * LibriVox is volunteer-read, so voice, pace and audio quality vary enormously
+ * between recordings of the same title — this is how a listener finds one they
+ * can actually live with for eight hours.
+ */
+export function VersionsView({
+  cursor,
+  versions,
+  isLoading,
+}: {
+  cursor: number;
+  versions: Book[];
+  isLoading: boolean;
+}) {
+  if (isLoading) {
+    return (
+      <div className="panel__center">
+        <span className="panel__subtitle">Looking for other recordings…</span>
+      </div>
+    );
+  }
+  return (
+    <>
+      <MenuList
+        cursor={cursor}
+        emptyMessage="This is the only recording"
+        items={versions.map<MenuItem>(v => ({
+          key: v.id,
+          // The reader is the reason to switch, so it leads where it is known.
+          label: v.narrator ?? v.title,
+          meta: v.duration > 0 ? formatDuration(v.duration) : undefined,
+          arrow: true,
+        }))}
+      />
+      {versions.length > 0 && (
+        <div className="status" style={{ padding: '2px 8px' }}>
+          {versions.length} other recording{versions.length === 1 ? '' : 's'}
+        </div>
+      )}
+    </>
   );
 }
 

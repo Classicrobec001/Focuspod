@@ -8,6 +8,7 @@ import {
 import IpodDevice from './components/IpodDevice';
 import InstallPrompt from './components/InstallPrompt';
 import ConsentPrompt from './components/ConsentPrompt';
+import UpdatePrompt from './components/UpdatePrompt';
 import { analytics, setAnalyticsConsent } from './analytics';
 
 export default function App() {
@@ -74,6 +75,7 @@ export default function App() {
       <IpodDevice />
       <InstallPrompt />
       <ConsentPrompt />
+      <UpdatePrompt />
     </>
   );
 }

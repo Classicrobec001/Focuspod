@@ -4,7 +4,7 @@ export { configureCore } from './ports/registry';
 export type { CorePorts } from './ports/registry';
 
 export * as archiveService from './services/archiveService';
-export { isHydrated } from './services/archiveService';
+export { isHydrated, fetchVersions, extractNarrator } from './services/archiveService';
 export { fetchBookText } from './services/textService';
 export { GENRES, SORT_LABELS } from './services/archiveService';
 export { PODCAST_TOPICS, isPodcast } from './services/podcastService';
