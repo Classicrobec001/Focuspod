@@ -27,6 +27,8 @@ import {
   usePodcastStore,
 } from '@focuspod/core';
 import MenuList, { MenuItem } from '../components/MenuList';
+import { RELEASE_NOTES, hasUnreadNotes } from '../releaseNotes';
+import { analyticsConfigured } from '../analytics';
 
 // ─── Home ─────────────────────────────────────────────────────────────────
 
@@ -662,16 +664,107 @@ export function SessionsView({ cursor }: { cursor: number }) {
   );
 }
 
+// ─── What's New ───────────────────────────────────────────────────────────
+
+export function WhatsNewView() {
+  return (
+    <div className="reader">
+      <div className="reader__body">
+        {RELEASE_NOTES.map(note => (
+          <div key={note.version} style={{ marginBottom: '0.8em' }}>
+            <div className="panel__title">
+              {note.version} · <span className="panel__subtitle">{note.date}</span>
+            </div>
+            {note.items.map(item => (
+              <p key={item} className="reader__p reader__p--current" style={{ marginBottom: '0.3em' }}>
+                • {item}
+              </p>
+            ))}
+          </div>
+        ))}
+      </div>
+      <div className="reader__footer">
+        <span>Rotate or swipe to read more</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── About ────────────────────────────────────────────────────────────────
+
+const LINKS = [
+  { label: 'X / Twitter', href: 'https://x.com/KingRobec' },
+  { label: 'LinkedIn', href: 'https://www.linkedin.com/in/rokeeb-abdul-41a253144/' },
+  { label: 'Instagram', href: 'https://www.instagram.com/classicrobec/' },
+  { label: 'Email', href: 'mailto:uxrobec@gmail.com' },
+];
+
+export function AboutView() {
+  return (
+    <div className="reader">
+      <div className="reader__body">
+        <p className="reader__p reader__p--current">
+          Hey there! I'm Rokeeb, a product designer who blends UX design, systems thinking and
+          technical execution.
+        </p>
+        <p className="reader__p reader__p--current">
+          I also dabble in vibe coding, and I help startups move fast.
+        </p>
+        <ul className="about__links">
+          {LINKS.map(link => {
+            // Profiles open in a new context so playback is never interrupted
+            // by navigating the app away. mailto: hands off to the mail client
+            // and must not, or the browser is left holding an empty tab.
+            const external = !link.href.startsWith('mailto:');
+            return (
+              <li key={link.label}>
+                <a
+                  href={link.href}
+                  {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+                >
+                  {link.label} ›
+                </a>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+      <div className="reader__footer">
+        <span>FocusPod</span>
+        <span>Public-domain audiobooks &amp; podcasts</span>
+      </div>
+    </div>
+  );
+}
+
 // ─── Settings ─────────────────────────────────────────────────────────────
 
-export const SETTINGS_ROWS = [
-  'haptics',
-  'keepAwake',
-  'rate',
-  'sort',
-  'duration',
-  'storage',
-] as const;
+export type SettingsRow =
+  | 'haptics'
+  | 'tap'
+  | 'keepAwake'
+  | 'rate'
+  | 'sort'
+  | 'duration'
+  | 'storage'
+  | 'analytics'
+  | 'whatsnew'
+  | 'about';
+
+/**
+ * The rows actually rendered, in order.
+ *
+ * A function rather than a constant because the analytics row only exists when
+ * a measurement id was configured at build time. The view and the wheel
+ * dispatcher both read this, so a row can never be shown at one index and acted
+ * on at another.
+ */
+export function settingsRows(): SettingsRow[] {
+  const rows: SettingsRow[] = ['haptics', 'tap', 'keepAwake', 'rate', 'sort', 'duration', 'storage'];
+  if (analyticsConfigured) rows.push('analytics');
+  rows.push('whatsnew', 'about');
+  return rows;
+}
 
 export function SettingsView({ cursor }: { cursor: number }) {
   const prefs = useSettingsStore(s => s.preferences);
@@ -683,14 +776,30 @@ export function SettingsView({ cursor }: { cursor: number }) {
       ? `${(usedBytes / 1024 / 1024).toFixed(0)} / ${(quotaBytes / 1024 / 1024 / 1024).toFixed(1)} GB`
       : `${(usedBytes / 1024 / 1024).toFixed(0)} MB`;
 
-  const items: MenuItem[] = [
-    { key: 'haptics', label: 'Wheel clicks', meta: prefs.haptics ? 'On' : 'Off' },
-    { key: 'keepAwake', label: 'Keep screen awake', meta: prefs.keepAwake ? 'On' : 'Off' },
-    { key: 'rate', label: 'Playback speed', meta: `${prefs.playbackRate}×` },
-    { key: 'sort', label: 'Browse order', meta: SORT_LABELS[sort] },
-    { key: 'duration', label: 'Default session', meta: `${prefs.defaultSessionDuration}m` },
-    { key: 'storage', label: 'Offline storage', meta: storageMeta },
-  ];
+  const ROW_CONTENT: Record<SettingsRow, MenuItem> = {
+    haptics: { key: 'haptics', label: 'Wheel clicks', meta: prefs.haptics ? 'On' : 'Off' },
+    tap: { key: 'tap', label: 'Tap to select', meta: prefs.tapToSelect ? 'On' : 'Off' },
+    keepAwake: { key: 'keepAwake', label: 'Keep screen awake', meta: prefs.keepAwake ? 'On' : 'Off' },
+    rate: { key: 'rate', label: 'Playback speed', meta: `${prefs.playbackRate}×` },
+    sort: { key: 'sort', label: 'Browse order', meta: SORT_LABELS[sort] },
+    duration: { key: 'duration', label: 'Default session', meta: `${prefs.defaultSessionDuration}m` },
+    storage: { key: 'storage', label: 'Offline storage', meta: storageMeta },
+    analytics: {
+      key: 'analytics',
+      label: 'Usage analytics',
+      meta: prefs.analyticsConsent ? 'On' : 'Off',
+    },
+    whatsnew: {
+      key: 'whatsnew',
+      label: "What's New",
+      // A dot rather than a count: it only needs to say "there is something".
+      meta: hasUnreadNotes(prefs.lastSeenVersion) ? '•' : undefined,
+      arrow: true,
+    },
+    about: { key: 'about', label: 'About the builder', arrow: true },
+  };
+
+  const items: MenuItem[] = settingsRows().map(row => ROW_CONTENT[row]);
 
   return <MenuList cursor={cursor} items={items} />;
 }

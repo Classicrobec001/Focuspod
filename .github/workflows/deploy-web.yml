@@ -45,6 +45,11 @@ jobs:
         run: npm run build --workspace @focuspod/web
         env:
           VITE_BASE: /Focuspod/
+          # Optional. Set a repository *variable* named GA_MEASUREMENT_ID
+          # (Settings → Secrets and variables → Actions → Variables) to switch
+          # analytics on. Left unset, no tracking code is bundled at all and the
+          # consent prompt and Settings row never appear.
+          VITE_GA_ID: ${{ vars.GA_MEASUREMENT_ID }}
 
       - uses: actions/configure-pages@v5
 

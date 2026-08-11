@@ -7,6 +7,8 @@ import {
 } from '@focuspod/core';
 import IpodDevice from './components/IpodDevice';
 import InstallPrompt from './components/InstallPrompt';
+import ConsentPrompt from './components/ConsentPrompt';
+import { analytics, setAnalyticsConsent } from './analytics';
 
 export default function App() {
   const [ready, setReady] = useState(false);
@@ -16,6 +18,14 @@ export default function App() {
     // index has to be verified before playback can resolve offline chapters.
     (async () => {
       await useSettingsStore.getState().loadPreferences();
+      // Apply the stored decision before anything is tracked. Until this runs,
+      // and whenever it is false, no analytics script is loaded at all.
+      const { analyticsConsent } = useSettingsStore.getState().preferences;
+      setAnalyticsConsent(analyticsConsent);
+      analytics.appOpen(
+        window.matchMedia('(display-mode: standalone)').matches ||
+          (window.navigator as { standalone?: boolean }).standalone === true,
+      );
       await useDownloadStore.getState().loadSaved();
       await usePlaybackStore.getState().initPlayer();
       await useSessionStore.getState().loadSessions();
@@ -63,6 +73,7 @@ export default function App() {
     <>
       <IpodDevice />
       <InstallPrompt />
+      <ConsentPrompt />
     </>
   );
 }

@@ -89,6 +89,18 @@ export interface UserPreferences {
   playbackRate: number; // 0.75 | 1 | 1.25 | 1.5 | 2
   /** Keep the screen awake for the duration of a focus session (web: Wake Lock). */
   keepAwake: boolean;
+  /**
+   * Allow tapping a row directly instead of rotating to it. The wheel is
+   * unaffected either way — this only adds a second route to the same action.
+   */
+  tapToSelect: boolean;
+  /**
+   * Anonymous usage analytics. null = never asked, so the consent prompt is
+   * still owed; false = declined and no tracking script is ever loaded.
+   */
+  analyticsConsent: boolean | null;
+  /** Version whose release notes have been read, for the What's New marker. */
+  lastSeenVersion: string | null;
 }
 
 // ─── Blocking ─────────────────────────────────────────────────────────────

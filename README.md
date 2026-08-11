@@ -53,6 +53,26 @@ Pages serves project sites from `/<repo>/`, so the workflow sets `VITE_BASE=/Foc
 which flows into the bundle paths, the manifest `start_url` and the service worker
 scope. Any host serving from a domain root needs no `VITE_BASE` at all.
 
+## Analytics
+
+Off unless a Google Analytics 4 measurement id is provided, and off even then
+until the user agrees.
+
+Set a repository variable `GA_MEASUREMENT_ID` (Settings → Secrets and variables
+→ Actions → Variables) and the deploy picks it up. Without it, no tracking code
+is bundled and the consent prompt never appears.
+
+GA4 was chosen over a page-view product like Cloudflare Web Analytics for one
+reason: FocusPod is a single page that never changes URL, so page views would
+report about one per session and answer nothing. The questions worth asking —
+which books get played, whether focus sessions finish, how many downloads
+complete — are all custom events.
+
+Everything routes through [`web/src/analytics.ts`](web/src/analytics.ts), which
+is the only file that knows the provider, so switching to Plausible or PostHog
+later is a one-file change. Search is recorded as *that* a search happened and
+how many results came back, never the words typed.
+
 ## Why the catalog comes from archive.org, not librivox.org
 
 The LibriVox API at `librivox.org/api/feed/audiobooks` sends no

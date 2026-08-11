@@ -9,6 +9,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { useTap } from './TapContext';
 
 export interface MenuItem {
   key: string;
@@ -62,9 +63,12 @@ export default function MenuList({ items, cursor, emptyMessage = 'Nothing here' 
   }, [cursor, visibleCount, items.length]);
 
   const visible = items.slice(windowStart, windowStart + visibleCount);
+  const { enabled: tapEnabled, onPick } = useTap();
 
   return (
-    <div className="menu" ref={containerRef}>
+    // Always exposed as a listbox, tappable or not: the click wheel is
+    // aria-hidden, so this is the only thing a screen reader can navigate.
+    <div className="menu" ref={containerRef} role="listbox" aria-label="Menu">
       {items.length === 0 ? (
         <div className="panel__center">
           <span className="panel__subtitle">{emptyMessage}</span>
@@ -76,8 +80,28 @@ export default function MenuList({ items, cursor, emptyMessage = 'Nothing here' 
           return (
             <div
               key={item.key}
-              className={`menu__row${selected ? ' menu__row--selected' : ''}`}
+              className={`menu__row${selected ? ' menu__row--selected' : ''}${
+                tapEnabled ? ' menu__row--tappable' : ''
+              }`}
+              role="option"
+              aria-selected={selected}
               aria-current={selected ? 'true' : undefined}
+              tabIndex={tapEnabled ? 0 : -1}
+              onClick={tapEnabled ? () => onPick(index) : undefined}
+              onKeyDown={
+                tapEnabled
+                  ? e => {
+                      // The row is focusable when tapping is on, so it has to
+                      // answer the keyboard too — otherwise a screen reader can
+                      // reach a row it cannot activate.
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onPick(index);
+                      }
+                    }
+                  : undefined
+              }
             >
               <span className="menu__label">{item.label}</span>
               {item.meta && <span className="menu__meta">{item.meta}</span>}

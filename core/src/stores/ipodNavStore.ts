@@ -23,7 +23,9 @@ export type ScreenId =
   | 'read-along'
   | 'focus'
   | 'sessions'
-  | 'settings';
+  | 'settings'
+  | 'whats-new'
+  | 'about';
 
 export interface StackEntry {
   id: ScreenId;
@@ -60,6 +62,8 @@ const ALL_SCREENS: ScreenId[] = [
   'focus',
   'sessions',
   'settings',
+  'whats-new',
+  'about',
 ];
 
 const zeroCursors = () =>

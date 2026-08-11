@@ -10,6 +10,11 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   blockedApps: [],
   playbackRate: 1.0,
   keepAwake: true,
+  // On by default: the wheel alone is unusable with a screen reader, and a
+  // 21,000-title catalog is tedious to rotate through.
+  tapToSelect: true,
+  analyticsConsent: null,
+  lastSeenVersion: null,
 };
 
 export const PLAYBACK_RATES = [0.75, 1.0, 1.25, 1.5, 2.0];

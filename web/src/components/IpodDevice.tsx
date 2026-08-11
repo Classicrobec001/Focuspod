@@ -21,6 +21,7 @@ import {
   GENRES,
   PODCAST_TOPICS,
   usePodcastStore,
+  isPodcast,
   type GenreKey,
   type SortOption,
   type ScreenId,
@@ -45,8 +46,13 @@ import {
   SearchView,
   SessionsView,
   SettingsView,
-  SETTINGS_ROWS,
+  settingsRows,
+  WhatsNewView,
+  AboutView,
 } from '../views';
+import { TapProvider } from './TapContext';
+import { analytics, setAnalyticsConsent } from '../analytics';
+import { CURRENT_VERSION } from '../releaseNotes';
 import { webFocusGuard } from '../ports';
 
 /** Seconds of audio a single wheel detent scrubs on the Now Playing screen. */
@@ -115,7 +121,7 @@ export default function IpodDevice() {
         case 'sessions':
           return session.sessions.length;
         case 'settings':
-          return SETTINGS_ROWS.length;
+          return settingsRows().length;
         case 'focus':
           if (session.currentSession) return 0;
           if (session.focusSetupStep === 'duration') return FOCUS_DURATIONS.length;
@@ -165,6 +171,10 @@ export default function IpodDevice() {
         return 'Past Sessions';
       case 'settings':
         return 'Settings';
+      case 'whats-new':
+        return "What's New";
+      case 'about':
+        return 'About';
       default:
         return 'FocusPod';
     }
@@ -182,10 +192,16 @@ export default function IpodDevice() {
     [nav, library],
   );
 
-  const handleSelect = useCallback(async () => {
+  /**
+   * Acts on a row. `atIndex` lets a tap act on the row that was touched rather
+   * than the one the cursor happens to sit on; the wheel passes nothing and
+   * gets the cursor, exactly as before.
+   */
+  const handleSelect = useCallback(async (atIndex?: number) => {
+    const index = atIndex ?? cursor;
     switch (screen.id) {
       case 'home': {
-        const target = HOME_ITEMS[cursor]?.key as ScreenId | undefined;
+        const target = HOME_ITEMS[index]?.key as ScreenId | undefined;
         if (!target) return;
         if (target === 'focus') session.resetFocusSetup();
         if (target === 'search') setSearchQuery('');
@@ -195,25 +211,26 @@ export default function IpodDevice() {
       }
 
       case 'audiobooks': {
-        const book = library.books[cursor];
+        const book = library.books[index];
         if (book) await openBook(book.id);
         return;
       }
 
       case 'genres': {
-        const genre = GENRES[cursor];
+        const genre = GENRES[index];
         if (!genre) return;
         // Navigate first, then fetch. Awaiting the network before pushing left
         // the wheel looking dead for several seconds; this way the list screen
         // appears at once and shows its own loading state.
         nav.resetCursor('audiobooks');
         nav.push('audiobooks');
+        analytics.browseGenre(genre.key);
         await library.setGenre(genre.key as GenreKey);
         return;
       }
 
       case 'search-results': {
-        const book = library.searchResults[cursor];
+        const book = library.searchResults[index];
         if (book) await openBook(book.id);
         return;
       }
@@ -224,16 +241,17 @@ export default function IpodDevice() {
         return;
 
       case 'podcast-topics': {
-        const topic = PODCAST_TOPICS[cursor];
+        const topic = PODCAST_TOPICS[index];
         if (!topic) return;
         nav.resetCursor('podcast-shows');
         nav.push('podcast-shows');
+        analytics.browsePodcastTopic(topic.key);
         await podcasts.loadTopic(topic.key);
         return;
       }
 
       case 'podcast-shows': {
-        const show = podcasts.shows[cursor];
+        const show = podcasts.shows[index];
         if (!show) return;
         // Shows arrive already hydrated by the verification pass, so the detail
         // screen can be shown straight away with no second fetch.
@@ -244,7 +262,7 @@ export default function IpodDevice() {
       }
 
       case 'downloads': {
-        const entry = downloads.downloadedBooks()[cursor];
+        const entry = downloads.downloadedBooks()[index];
         if (entry) await openBook(entry.bookId);
         return;
       }
@@ -252,7 +270,7 @@ export default function IpodDevice() {
       case 'chapters': {
         const book = library.selectedBook;
         if (!book || book.chapters.length === 0) return;
-        await playback.loadBook(book, cursor);
+        await playback.loadBook(book, index);
         await playback.play();
         nav.push('now-playing');
         return;
@@ -262,9 +280,10 @@ export default function IpodDevice() {
         const book = library.selectedBook;
         if (!book) return;
 
-        switch (BOOK_ACTIONS[cursor]) {
+        switch (BOOK_ACTIONS[index]) {
           case 'Play': {
             if (book.chapters.length === 0) return; // still hydrating
+            analytics.play(isPodcast(book.id) ? 'podcast' : 'book', book.id);
             await playback.loadBook(book, 0);
             await playback.play();
             nav.push('now-playing');
@@ -281,7 +300,10 @@ export default function IpodDevice() {
             const state = downloads.books[book.id];
             if (state?.status === 'downloading') downloads.cancelDownload(book.id);
             else if (state?.status === 'done') await downloads.deleteDownload(book.id);
-            else await downloads.startDownload(book);
+            else {
+              analytics.downloadStart(book.chapters.length);
+              await downloads.startDownload(book);
+            }
             return;
           }
           case 'Read Along': {
@@ -311,6 +333,7 @@ export default function IpodDevice() {
         if (!playback.currentBook) return;
         nav.push('read-along');
         await readAlong.load(playback.currentBook);
+        analytics.readAlongOpen(useReadAlongStore.getState().alignmentQuality ?? 'none');
         return;
       }
 
@@ -337,7 +360,7 @@ export default function IpodDevice() {
         }
 
         if (session.focusSetupStep === 'duration') {
-          session.setSelectedDuration(FOCUS_DURATIONS[cursor]);
+          session.setSelectedDuration(FOCUS_DURATIONS[index]);
           const next = session.advanceSetupStep();
           if (next === 'confirm') await startSession();
           else nav.resetCursor('focus');
@@ -346,7 +369,7 @@ export default function IpodDevice() {
 
         if (session.focusSetupStep === 'book') {
           // Row 0 is "no audiobook"; the rest map to the browse list.
-          const book = cursor === 0 ? null : library.books.slice(0, 40)[cursor - 1];
+          const book = index === 0 ? null : library.books.slice(0, 40)[index - 1];
           session.setFocusSetupBookId(book?.id ?? null);
           if (book) await library.selectBook(book.id);
           const next = session.advanceSetupStep();
@@ -358,8 +381,20 @@ export default function IpodDevice() {
       }
 
       case 'settings': {
-        const row = SETTINGS_ROWS[cursor];
+        const row = settingsRows()[index];
         if (row === 'haptics') await settings.update({ haptics: !settings.preferences.haptics });
+        if (row === 'tap') await settings.update({ tapToSelect: !settings.preferences.tapToSelect });
+        if (row === 'analytics') {
+          const consent = !settings.preferences.analyticsConsent;
+          setAnalyticsConsent(consent);
+          await settings.update({ analyticsConsent: consent });
+        }
+        if (row === 'whatsnew') {
+          nav.push('whats-new');
+          // Reading it clears the marker.
+          await settings.update({ lastSeenVersion: CURRENT_VERSION });
+        }
+        if (row === 'about') nav.push('about');
         if (row === 'keepAwake') {
           const keepAwake = !settings.preferences.keepAwake;
           webFocusGuard.setKeepAwake(keepAwake);
@@ -395,6 +430,19 @@ export default function IpodDevice() {
     // an empty show list, and selecting a podcast did nothing.
   }, [screen.id, cursor, library, playback, session, downloads, settings, nav, openBook, podcasts, readAlong]);
 
+  /**
+   * A tapped row. The cursor moves there first so the highlight matches what
+   * was touched, then the same dispatcher runs — tapping and the wheel can
+   * never diverge because there is only one implementation of "select".
+   */
+  const handlePick = useCallback(
+    (index: number) => {
+      nav.setCursor(screen.id, index);
+      run(() => handleSelect(index));
+    },
+    [nav, screen.id, handleSelect],
+  );
+
   /** Creates and starts a session, and begins the chosen book if there is one. */
   const startSession = useCallback(async () => {
     const bookId = session.focusSetupBookId;
@@ -404,6 +452,7 @@ export default function IpodDevice() {
       bookId,
     });
     await session.startSession(created.id);
+    analytics.focusStart(session.selectedDuration);
 
     if (bookId) {
       const book =
@@ -425,6 +474,11 @@ export default function IpodDevice() {
     if (screen.id === 'focus' && session.currentSession) {
       const confirmed = window.confirm('End this focus session?');
       if (!confirmed) return;
+      analytics.focusEnd(
+        session.currentSession.duration,
+        'cancelled',
+        session.currentSession.distractions.length,
+      );
       await session.endSession('cancelled');
       await playback.pause();
       nav.pop();
@@ -443,6 +497,7 @@ export default function IpodDevice() {
     if (screen.id === 'search') {
       if (!searchQuery.trim()) return;
       await library.searchBooks(searchQuery);
+      analytics.search('books', useLibraryStore.getState().searchResults.length);
       nav.resetCursor('search-results');
       nav.push('search-results');
       return;
@@ -525,7 +580,7 @@ export default function IpodDevice() {
           break;
         case 'Enter':
           e.preventDefault();
-          run(handleSelect);
+          run(() => handleSelect());
           break;
         // Space is the play/pause key everywhere else on the web, and the
         // centre button no longer pauses now that it opens the reader.
@@ -608,6 +663,10 @@ export default function IpodDevice() {
         return <SessionsView cursor={cursor} />;
       case 'settings':
         return <SettingsView cursor={cursor} />;
+      case 'whats-new':
+        return <WhatsNewView />;
+      case 'about':
+        return <AboutView />;
       default:
         return null;
     }
@@ -617,7 +676,8 @@ export default function IpodDevice() {
     playback.status === 'playing' ? '▶' : playback.status === 'buffering' ? '⋯' : null;
 
   return (
-    <div className="device">
+    <TapProvider value={{ enabled: settings.preferences.tapToSelect, onPick: handlePick }}>
+      <div className="device">
       <Lcd
         title={title()}
         status={
@@ -631,7 +691,7 @@ export default function IpodDevice() {
       </Lcd>
 
       <ClickWheel
-        onSelect={() => run(handleSelect)}
+        onSelect={() => run(() => handleSelect())}
         onMenu={() => run(handleMenu)}
         onNext={() => run(handleNext)}
         onPrevious={() => run(handlePrevious)}
@@ -639,7 +699,8 @@ export default function IpodDevice() {
         onRotate={handleRotate}
       />
 
-      <div className="brand">FocusPod</div>
-    </div>
+        <div className="brand">FocusPod</div>
+      </div>
+    </TapProvider>
   );
 }
