@@ -57,9 +57,17 @@ export const SORT_LABELS: Record<SortOption, string> = {
 };
 
 /**
- * Browsable genres, with the counts observed in the collection. Drawn from the
- * `subject` tags LibriVox applies; ordered so the largest, most useful
- * categories come first rather than alphabetically.
+ * Browsable categories.
+ *
+ * Most are a single `subject` tag, but faiths need more than that: LibriVox
+ * tags the Pickthall and Rodwell translations under "koran"/"quran" rather than
+ * "islam", so a lone subject match finds almost nothing and the category looks
+ * empty when the books are actually there. `query` overrides the default
+ * `subject:("key")` for those.
+ *
+ * Faiths are listed individually rather than folded into one "Religion" bucket.
+ * That bucket is ~1,050 Christian titles out of ~1,200, so everything else is
+ * buried past any page a reader would scroll to.
  */
 export const GENRES = [
   { key: '', label: 'All books' },
@@ -70,9 +78,37 @@ export const GENRES = [
   { key: 'romance', label: 'Romance' },
   { key: 'adventure', label: 'Adventure' },
   { key: 'philosophy', label: 'Philosophy' },
+  {
+    key: 'islam',
+    label: 'Islam',
+    query:
+      'subject:(islam) OR subject:(islamic) OR subject:(quran) OR subject:(koran) ' +
+      'OR subject:(muslim) OR subject:(sufi) OR title:(koran) OR title:(quran)',
+  },
+  {
+    key: 'christianity',
+    label: 'Christianity',
+    query: 'subject:(christianity) OR subject:(christian) OR subject:(bible)',
+  },
+  {
+    key: 'judaism',
+    label: 'Judaism',
+    query: 'subject:(judaism) OR subject:(jewish) OR subject:(talmud) OR subject:(torah)',
+  },
+  {
+    key: 'buddhism',
+    label: 'Buddhism',
+    query: 'subject:(buddhism) OR subject:(buddhist) OR subject:(buddha)',
+  },
+  {
+    key: 'hinduism',
+    label: 'Hinduism',
+    query:
+      'subject:(hinduism) OR subject:(hindu) OR subject:(vedanta) OR subject:(upanishad)',
+  },
+  { key: 'mythology', label: 'Mythology' },
   { key: 'war', label: 'War' },
   { key: 'mystery', label: 'Mystery' },
-  { key: 'religion', label: 'Religion' },
   { key: 'short stories', label: 'Short stories' },
   { key: 'humor', label: 'Humour' },
   { key: 'science fiction', label: 'Science fiction' },
@@ -274,13 +310,23 @@ function escapeLucene(term: string): string {
 
 function buildQuery(search?: string, genre?: string): string {
   const clauses = [`collection:${COLLECTION}`];
+
   if (search?.trim()) {
     const term = escapeLucene(search.trim());
-    clauses.push(`(title:(${term}) OR creator:(${term}))`);
+    // `subject` is included so a reader can search by what a book is *about*,
+    // not only by its name. Searching "islam" or "quran" matched nothing while
+    // this was title-and-author only, because the books are called "The Holy
+    // Koran" and "The Meaning of the Glorious Koran". Description is left out —
+    // it mentions far too much in passing to stay relevant.
+    clauses.push(`(title:(${term}) OR creator:(${term}) OR subject:(${term}))`);
   }
+
   if (genre?.trim()) {
-    clauses.push(`subject:(${escapeLucene(genre.trim())})`);
+    const key = genre.trim();
+    const entry = GENRES.find(g => g.key === key) as { query?: string } | undefined;
+    clauses.push(entry?.query ? `(${entry.query})` : `subject:(${escapeLucene(key)})`);
   }
+
   return clauses.join(' AND ');
 }
 
