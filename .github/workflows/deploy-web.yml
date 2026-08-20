@@ -50,6 +50,12 @@ jobs:
           # analytics on. Left unset, no tracking code is bundled at all and the
           # consent prompt and Settings row never appear.
           VITE_GA_ID: ${{ vars.GA_MEASUREMENT_ID }}
+          # Also optional, and also repository *variables* rather than secrets:
+          # both values are public by design and end up in the bundle either
+          # way. Unset, accounts simply do not exist in the build — no Account
+          # row, no locked themes, no sync. See docs/accounts.md.
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
 
       - uses: actions/configure-pages@v5
 

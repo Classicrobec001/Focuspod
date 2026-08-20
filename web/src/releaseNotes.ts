@@ -18,6 +18,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.7.0',
+    date: 'August 2026',
+    items: [
+      'Eight themes. Settings › Theme — Classic, Midnight, Strawberry and five more.',
+      'Listening streaks: ten minutes a day keeps it going. Streak on the main menu.',
+      'Save single chapters: press ▶▶ on any chapter, find them under Favourites › Favourite Chapters.',
+      'Optional account: give an email, get a sign-in link, and your favourites, streak and theme follow you to every device.',
+    ],
+  },
+  {
     version: '1.6.0',
     date: 'August 2026',
     items: [

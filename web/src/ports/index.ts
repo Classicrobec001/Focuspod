@@ -9,6 +9,7 @@ import { webDownloads, requestPersistentStorage } from './webDownloads';
 import { webFocusGuard } from './webFocusGuard';
 import { webHaptics } from './webHaptics';
 import { webStorage } from './webStorage';
+import { webAuth } from './webAuth';
 
 export function installWebPorts(): void {
   configureCore({
@@ -17,6 +18,7 @@ export function installWebPorts(): void {
     downloads: webDownloads,
     haptics: webHaptics,
     focusGuard: webFocusGuard,
+    auth: webAuth,
   });
 }
 
@@ -62,4 +64,5 @@ export function primeOnFirstGesture(): void {
   });
 }
 
-export { webAudio, webDownloads, webFocusGuard, webHaptics, webStorage };
+export { webAudio, webDownloads, webFocusGuard, webHaptics, webStorage, webAuth };
+export { accountsConfigured } from './webAuth';

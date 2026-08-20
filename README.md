@@ -71,7 +71,27 @@ complete — are all custom events.
 Everything routes through [`web/src/analytics.ts`](web/src/analytics.ts), which
 is the only file that knows the provider, so switching to Plausible or PostHog
 later is a one-file change. Search is recorded as *that* a search happened and
-how many results came back, never the words typed.
+how many results came back, never the words typed. Account events are counted
+without the address — how many people sign in is a product question, who they
+are is not Google's business.
+
+## Accounts, themes and streaks
+
+Three features share one idea: the app is fully usable without an account, and
+an email address buys continuity rather than access.
+
+- **Themes** — eight palettes, three free. Each is a block of CSS custom
+  properties in `web/src/index.css`; no theme may add a rule, only change
+  values, which is what stops eight palettes becoming eight layouts.
+- **Streaks** — ten minutes of listening in a local calendar day. Time comes
+  from the wall clock between progress events, not from summing audio
+  positions, so scrubbing forward through an hour earns nothing. Opt-out in
+  Settings, and off means the counter really stops.
+- **Accounts** — passwordless email links via Supabase, behind an `AuthPort` so
+  core never imports it. Off unless configured, exactly like analytics.
+
+Setup, the SQL for the sync table, and what sync does and does not guarantee
+are in [`docs/accounts.md`](docs/accounts.md).
 
 ## Why the catalog comes from archive.org, not librivox.org
 

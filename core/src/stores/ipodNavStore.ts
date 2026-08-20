@@ -17,6 +17,7 @@ export type ScreenId =
   | 'search'
   | 'search-results'
   | 'favorites'
+  | 'favorite-chapters'
   | 'downloads'
   | 'book-detail'
   | 'chapters'
@@ -26,6 +27,9 @@ export type ScreenId =
   | 'focus'
   | 'sessions'
   | 'settings'
+  | 'themes'
+  | 'streak'
+  | 'account'
   | 'whats-new'
   | 'about';
 
@@ -57,6 +61,7 @@ const ALL_SCREENS: ScreenId[] = [
   'search',
   'search-results',
   'favorites',
+  'favorite-chapters',
   'downloads',
   'book-detail',
   'chapters',
@@ -66,6 +71,9 @@ const ALL_SCREENS: ScreenId[] = [
   'focus',
   'sessions',
   'settings',
+  'themes',
+  'streak',
+  'account',
   'whats-new',
   'about',
 ];

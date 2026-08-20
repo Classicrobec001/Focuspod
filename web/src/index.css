@@ -11,6 +11,11 @@
   /* Device shell */
   --device-body: #e8e8e3;
   --device-body-shadow: #c8c8c3;
+  /* The two ends of the shell's gradient — themed, so the plastic changes too. */
+  --device-body-lit: #f4f4f0;
+  --device-body-dim: #d9d9d3;
+  --brand-text: #a2a29c;
+  --input-bg: #dfe7d9;
 
   /* LCD */
   --lcd-bezel: #2a2a2a;
@@ -97,7 +102,12 @@ body {
   align-items: center;
   padding: calc(env(safe-area-inset-top) + 10px) 14px
     calc(env(safe-area-inset-bottom) + 8px) 14px;
-  background: linear-gradient(168deg, #f4f4f0 0%, var(--device-body) 42%, #d9d9d3 100%);
+  background: linear-gradient(
+    168deg,
+    var(--device-body-lit) 0%,
+    var(--device-body) 42%,
+    var(--device-body-dim) 100%
+  );
   overflow: hidden;
 }
 
@@ -352,7 +362,7 @@ body {
   padding: 6px 8px;
   border: 1px solid var(--row-divider);
   border-radius: 3px;
-  background: #dfe7d9;
+  background: var(--input-bg);
   color: var(--row-text);
   font-family: var(--font-lcd);
   font-size: clamp(13px, 3.4vw, 16px);
@@ -550,7 +560,7 @@ body {
   padding-top: 2px;
   font-size: 11px;
   letter-spacing: 0.18em;
-  color: #a2a29c;
+  color: var(--brand-text);
   font-weight: 600;
 }
 
@@ -640,5 +650,429 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .progress__fill {
     transition: none;
+  }
+}
+
+/* ─── Themes ─────────────────────────────────────────────────────────────
+ *
+ * `:root` above is the Classic palette — the ported iPod colours — and stays
+ * the default and the fallback. Each block below re-declares the same token
+ * set and nothing else: no theme may introduce a rule, only different values,
+ * which is what keeps eight palettes from becoming eight layouts to maintain.
+ *
+ * `:root[data-theme=…]` rather than a bare attribute selector, so a palette
+ * always outranks the defaults regardless of source order.
+ *
+ * The theme is set explicitly by the listener and never from
+ * `prefers-color-scheme`: the device is an object with a colour, not a
+ * document that adapts. Midnight declares `color-scheme` so scrollbars and
+ * form controls follow it.
+ */
+
+
+/* Deep navy plastic and a backlit blue screen — the one for reading in bed. */
+:root[data-theme="midnight"] {
+  color-scheme: dark;
+  --device-body: #2a2d3a;
+  --device-body-shadow: #161821;
+  --device-body-lit: #3a3e4e;
+  --device-body-dim: #1c1f29;
+  --brand-text: #6f7590;
+  --input-bg: #242b38;
+  --lcd-bezel: #12131a;
+  --lcd-glass: #1e2430;
+  --lcd-titlebar-bg: #3d5a8c;
+  --lcd-titlebar-text: #ffffff;
+  --row-bg: #232a38;
+  --row-text: #d6def0;
+  --row-selected-bg: #4a6fa5;
+  --row-selected-text: #ffffff;
+  --row-arrow: #7d8aa8;
+  --row-divider: #333c4e;
+  --row-muted: #8b97b0;
+  --wheel-surface: #363a4a;
+  --wheel-highlight: #454a5e;
+  --wheel-label: #c4cbe0;
+  --wheel-center: #2c3040;
+  --wheel-center-ring: #4a5064;
+  --progress-track: #333c4e;
+  --progress-fill: #6f8fd0;
+  --session-active: #4caf80;
+  --session-warning: #ffab40;
+}
+
+/* Strawberry milk: warm pink shell, deeper rose selection. */
+:root[data-theme="strawberry"] {
+  --device-body: #fff0f3;
+  --device-body-shadow: #f0d3da;
+  --device-body-lit: #fff8fa;
+  --device-body-dim: #f5dbe2;
+  --brand-text: #c99aa8;
+  --input-bg: #ffe9ef;
+  --lcd-bezel: #7a3b4c;
+  --lcd-glass: #ffd9e2;
+  --lcd-titlebar-bg: #c2426b;
+  --lcd-titlebar-text: #ffffff;
+  --row-bg: #ffe3ea;
+  --row-text: #5c2434;
+  --row-selected-bg: #e0507f;
+  --row-selected-text: #ffffff;
+  --row-arrow: #d18aa0;
+  --row-divider: #f6c6d2;
+  --row-muted: #a4667a;
+  --wheel-surface: #ffe0e7;
+  --wheel-highlight: #fff4f7;
+  --wheel-label: #a04a63;
+  --wheel-center: #ffd0dc;
+  --wheel-center-ring: #f0aebf;
+  --progress-track: #f6c6d2;
+  --progress-fill: #e0507f;
+  --session-active: #3f8f5f;
+  --session-warning: #e06a2a;
+}
+
+/* Matcha latte — soft green with a leafy selection bar. */
+:root[data-theme="matcha"] {
+  --device-body: #f2f6ea;
+  --device-body-shadow: #d6ddc8;
+  --device-body-lit: #fafcf5;
+  --device-body-dim: #dfe6d2;
+  --brand-text: #a3ac93;
+  --input-bg: #e9f2da;
+  --lcd-bezel: #3f4a33;
+  --lcd-glass: #dbe8c8;
+  --lcd-titlebar-bg: #5a7a42;
+  --lcd-titlebar-text: #ffffff;
+  --row-bg: #e6f0d6;
+  --row-text: #2f3d24;
+  --row-selected-bg: #6b9450;
+  --row-selected-text: #ffffff;
+  --row-arrow: #9ab383;
+  --row-divider: #cddcb6;
+  --row-muted: #6c7d58;
+  --wheel-surface: #e8efdc;
+  --wheel-highlight: #f6faf0;
+  --wheel-label: #55663f;
+  --wheel-center: #dce7ca;
+  --wheel-center-ring: #bccfa4;
+  --progress-track: #cddcb6;
+  --progress-fill: #6b9450;
+  --session-active: #3f7a45;
+  --session-warning: #c9741f;
+}
+
+/* Blueberry — cool periwinkle, the calmest of the set. */
+:root[data-theme="blueberry"] {
+  --device-body: #eef1fb;
+  --device-body-shadow: #ccd3ec;
+  --device-body-lit: #f8f9fe;
+  --device-body-dim: #d8def2;
+  --brand-text: #98a1c0;
+  --input-bg: #e6ecfb;
+  --lcd-bezel: #2f3a5c;
+  --lcd-glass: #d6ddf6;
+  --lcd-titlebar-bg: #4a5fa8;
+  --lcd-titlebar-text: #ffffff;
+  --row-bg: #e2e8f8;
+  --row-text: #26304f;
+  --row-selected-bg: #5b73c4;
+  --row-selected-text: #ffffff;
+  --row-arrow: #94a2d0;
+  --row-divider: #c8d2ee;
+  --row-muted: #616e99;
+  --wheel-surface: #e6eafa;
+  --wheel-highlight: #f4f6fd;
+  --wheel-label: #47548a;
+  --wheel-center: #dbe1f5;
+  --wheel-center-ring: #b7c2e6;
+  --progress-track: #c8d2ee;
+  --progress-fill: #5b73c4;
+  --session-active: #3f8f6a;
+  --session-warning: #d3761f;
+}
+
+/* Peach — apricot shell, sunset-orange highlight. */
+:root[data-theme="peach"] {
+  --device-body: #fff4ec;
+  --device-body-shadow: #f0d8c6;
+  --device-body-lit: #fffaf6;
+  --device-body-dim: #f7e0d0;
+  --brand-text: #c6a48f;
+  --input-bg: #ffece0;
+  --lcd-bezel: #7a4a33;
+  --lcd-glass: #ffe0cd;
+  --lcd-titlebar-bg: #d1713f;
+  --lcd-titlebar-text: #ffffff;
+  --row-bg: #ffe9db;
+  --row-text: #5c3524;
+  --row-selected-bg: #e0854a;
+  --row-selected-text: #ffffff;
+  --row-arrow: #d5a483;
+  --row-divider: #f7cfb6;
+  --row-muted: #a2705a;
+  --wheel-surface: #ffe6d7;
+  --wheel-highlight: #fff7f1;
+  --wheel-label: #a05e36;
+  --wheel-center: #ffd8c2;
+  --wheel-center-ring: #f0b995;
+  --progress-track: #f7cfb6;
+  --progress-fill: #e0854a;
+  --session-active: #4a8a52;
+  --session-warning: #c0491f;
+}
+
+/* Lavender — dusty violet, easy on the eyes at night. */
+:root[data-theme="lavender"] {
+  --device-body: #f4f0fb;
+  --device-body-shadow: #d9cfec;
+  --device-body-lit: #fbf9fe;
+  --device-body-dim: #e3daf2;
+  --brand-text: #a99cc0;
+  --input-bg: #ece5fb;
+  --lcd-bezel: #453a5c;
+  --lcd-glass: #e4dbf6;
+  --lcd-titlebar-bg: #7a5fa8;
+  --lcd-titlebar-text: #ffffff;
+  --row-bg: #ebe4f8;
+  --row-text: #33264f;
+  --row-selected-bg: #8d73c4;
+  --row-selected-text: #ffffff;
+  --row-arrow: #b0a2d0;
+  --row-divider: #d8cdee;
+  --row-muted: #766199;
+  --wheel-surface: #efe9fa;
+  --wheel-highlight: #f9f6fd;
+  --wheel-label: #6a548a;
+  --wheel-center: #e6dff5;
+  --wheel-center-ring: #c9bce6;
+  --progress-track: #d8cdee;
+  --progress-fill: #8d73c4;
+  --session-active: #3f8f6a;
+  --session-warning: #d3761f;
+}
+
+/* Bubblegum — the loudest one, unapologetically. */
+:root[data-theme="bubblegum"] {
+  --device-body: #fdeffa;
+  --device-body-shadow: #eccde4;
+  --device-body-lit: #fffafd;
+  --device-body-dim: #f5daf0;
+  --brand-text: #c79bbc;
+  --input-bg: #fce4f7;
+  --lcd-bezel: #6b2f5c;
+  --lcd-glass: #fbd7f0;
+  --lcd-titlebar-bg: #b8449b;
+  --lcd-titlebar-text: #ffffff;
+  --row-bg: #fbe2f5;
+  --row-text: #52204a;
+  --row-selected-bg: #d45cb8;
+  --row-selected-text: #ffffff;
+  --row-arrow: #d79bc9;
+  --row-divider: #f2c6e6;
+  --row-muted: #96628a;
+  --wheel-surface: #fce6f7;
+  --wheel-highlight: #fef5fb;
+  --wheel-label: #99458a;
+  --wheel-center: #f9d8f1;
+  --wheel-center-ring: #eeb0dd;
+  --progress-track: #f2c6e6;
+  --progress-fill: #d45cb8;
+  --session-active: #3f8f6a;
+  --session-warning: #d3761f;
+}
+
+/* ─── Theme swatch ───────────────────────────────────────────────────────── */
+
+/*
+ * The picker has to show a colour that is not the one currently applied, so
+ * the dot's background is set inline from the theme's own metadata rather
+ * than read from a custom property.
+ */
+.swatch {
+  flex: 0 0 auto;
+  width: 11px;
+  height: 11px;
+  margin-right: 7px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.22);
+}
+
+/* ─── Streak ─────────────────────────────────────────────────────────────── */
+
+.streak {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 6px 8px;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.streak__hero {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.streak__count {
+  font-family: var(--font-lcd);
+  font-size: clamp(26px, 8vw, 38px);
+  font-weight: 700;
+  line-height: 1;
+  color: var(--row-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.streak__unit {
+  font-size: clamp(11px, 3vw, 13px);
+  color: var(--row-muted);
+}
+
+/*
+ * Fourteen columns, always. A fixed grid rather than one column per day with
+ * data means an empty history draws the same shape as a full one — the chart
+ * reads as "nothing here yet", not as a broken widget.
+ */
+.streak__bars {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(14, 1fr);
+  align-items: end;
+  gap: 2px;
+  height: clamp(30px, 9vh, 48px);
+}
+
+.streak__bar {
+  position: relative;
+  height: 100%;
+  background: var(--progress-track);
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.streak__bar span {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--progress-fill);
+}
+
+/* A day that cleared the ten minutes, so the goal line is visible at a glance. */
+.streak__bar--met span {
+  background: var(--session-active);
+}
+
+.streak__bar--today {
+  outline: 1px solid var(--row-selected-bg);
+  outline-offset: 1px;
+}
+
+.streak__scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  color: var(--row-muted);
+}
+
+.streak__stats {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: clamp(10px, 2.8vw, 12px);
+  color: var(--row-muted);
+}
+
+.streak__stats b {
+  color: var(--row-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.streak__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.badge {
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  background: var(--row-bg);
+  color: var(--row-muted);
+  border: 1px solid var(--row-divider);
+}
+
+.badge--earned {
+  background: var(--row-selected-bg);
+  color: var(--row-selected-text);
+  border-color: var(--row-selected-bg);
+}
+
+/* ─── Account ────────────────────────────────────────────────────────────── */
+
+.account__email {
+  font-family: var(--font-lcd);
+  font-size: clamp(11px, 3vw, 13px);
+  color: var(--row-text);
+  word-break: break-all;
+}
+
+.account__perks {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: clamp(10px, 2.8vw, 12px);
+  color: var(--row-muted);
+}
+
+.account__perks li::before {
+  content: '· ';
+}
+
+/* ─── Milestone banner ───────────────────────────────────────────────────── */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom) + 16px);
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-width: min(320px, calc(100vw - 28px));
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: var(--lcd-titlebar-bg);
+  color: var(--lcd-titlebar-text);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  font-size: 13px;
+  text-align: center;
+  animation: toast-in 220ms ease-out;
+}
+
+.toast span {
+  opacity: 0.85;
+  font-size: 12px;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+/* The banner is a courtesy, not information — respect a reduced-motion setting. */
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
   }
 }

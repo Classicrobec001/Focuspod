@@ -3,6 +3,22 @@ import { AudioStatus, Book } from '../types';
 import { audio, downloads } from '../ports/registry';
 import { AudioTrack } from '../ports';
 import { loadPlaybackState, savePlaybackState } from '../services/storage';
+import { useStreakStore } from './streakStore';
+import { useSettingsStore } from './settingsStore';
+import { useAuthStore } from './authStore';
+
+/**
+ * Credit listening time towards the streak.
+ *
+ * Driven off progress events rather than a timer of its own: they only fire
+ * while audio is actually moving, so a paused or stalled player contributes
+ * nothing without anything needing to notice that it stopped. The store works
+ * the increment out from the wall clock — see streakStore for why.
+ */
+function creditListening(): void {
+  if (!useSettingsStore.getState().preferences.streakEnabled) return;
+  useStreakStore.getState().tick(useAuthStore.getState().entitlements().streakHistoryDays);
+}
 
 const SEEK_STEP_CLAMP = 30; // wheel rotation never jumps more than this per event
 
@@ -71,9 +87,13 @@ export const usePlaybackStore = create<PlaybackStoreState>((set, get) => ({
       switch (event.type) {
         case 'status':
           set({ status: event.status });
+          // Anything that isn't playing ends the current run of credited time,
+          // so the gap until playback resumes is never counted.
+          if (event.status !== 'playing') void useStreakStore.getState().suspend();
           break;
         case 'progress':
           set({ position: event.position, duration: event.duration });
+          if (get().status === 'playing') creditListening();
           break;
         case 'track':
           set({ currentChapterIndex: event.index, position: 0 });
@@ -135,6 +155,7 @@ export const usePlaybackStore = create<PlaybackStoreState>((set, get) => ({
   pause: async () => {
     await audio().pause();
     set({ status: 'paused' });
+    await useStreakStore.getState().suspend();
     await get().persistPosition();
   },
 
@@ -149,6 +170,7 @@ export const usePlaybackStore = create<PlaybackStoreState>((set, get) => ({
 
   stop: async () => {
     await audio().stop();
+    await useStreakStore.getState().suspend();
     set({ status: 'idle', position: 0 });
   },
 

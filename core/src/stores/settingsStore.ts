@@ -1,10 +1,11 @@
 import { create } from 'zustand';
-import { UserPreferences } from '../types';
+import { AppTheme, UserPreferences } from '../types';
 import { haptics } from '../ports/registry';
 import { loadPreferences, savePreferences } from '../services/storage';
+import { DEFAULT_THEME, THEMES } from '../services/themes';
 
 export const DEFAULT_PREFERENCES: UserPreferences = {
-  theme: 'light',
+  theme: DEFAULT_THEME,
   haptics: true,
   defaultSessionDuration: 30,
   blockedApps: [],
@@ -15,7 +16,22 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   tapToSelect: true,
   analyticsConsent: null,
   lastSeenVersion: null,
+  streakEnabled: true,
 };
+
+/**
+ * The theme names shipped before the palette set existed. A stored preference
+ * of 'light' or 'dark' has to keep working, and anything unrecognised — a
+ * downgrade after trying a newer build — falls back rather than rendering an
+ * unstyled shell.
+ */
+const LEGACY_THEMES: Record<string, AppTheme> = { light: 'classic', dark: 'midnight' };
+
+function migrateTheme(stored: string | undefined): AppTheme {
+  if (!stored) return DEFAULT_THEME;
+  if (THEMES.some(t => t.id === stored)) return stored as AppTheme;
+  return LEGACY_THEMES[stored] ?? DEFAULT_THEME;
+}
 
 export const PLAYBACK_RATES = [0.75, 1.0, 1.25, 1.5, 2.0];
 
@@ -33,7 +49,9 @@ export const useSettingsStore = create<SettingsStoreState>((set, get) => ({
 
   loadPreferences: async () => {
     const saved = await loadPreferences();
-    const preferences = saved ? { ...DEFAULT_PREFERENCES, ...saved } : DEFAULT_PREFERENCES;
+    const preferences: UserPreferences = saved
+      ? { ...DEFAULT_PREFERENCES, ...saved, theme: migrateTheme(saved.theme) }
+      : DEFAULT_PREFERENCES;
     haptics().setEnabled(preferences.haptics);
     set({ preferences, isLoaded: true });
   },

@@ -10,7 +10,7 @@
  * store and never behind a `Platform.OS` check.
  */
 
-import { AudioStatus, BlockableApp, Chapter } from '../types';
+import { Account, AudioStatus, BlockableApp, Chapter } from '../types';
 
 // ─── Audio ────────────────────────────────────────────────────────────────
 
@@ -120,4 +120,48 @@ export interface FocusGuardPort {
    * with the elapsed duration when they return. Returns an unsubscribe function.
    */
   onDistraction(listener: (event: { at: number; durationMs: number }) => void): () => void;
+}
+
+// ─── Accounts ─────────────────────────────────────────────────────────────
+
+/**
+ * Passwordless email sign-in, and the small amount of cloud state that follows
+ * from having an account.
+ *
+ * Optional, unlike every other port: FocusPod works completely without one, and
+ * a build with no auth provider configured gets a null implementation whose
+ * `available` is false. Nothing in core may assume an account exists.
+ *
+ * Deliberately not a password API. Passwords would mean storing a credential,
+ * a reset flow, and a breach surface, to protect an account that holds a list
+ * of favourite chapters. A link to the address itself is proportionate.
+ */
+export interface AuthPort {
+  /** False when no provider was configured at build time — hides all account UI. */
+  readonly available: boolean;
+  /** The restored session, if any. Called once at startup. */
+  currentAccount(): Promise<Account | null>;
+  /** Emails a sign-in link. Resolves when it has been accepted for delivery. */
+  sendMagicLink(email: string): Promise<void>;
+  signOut(): Promise<void>;
+  /** Fires on sign-in and sign-out. Returns an unsubscribe function. */
+  subscribe(listener: (account: Account | null) => void): () => void;
+
+  /**
+   * The signed-in listener's synced blob, or null if they have none yet.
+   * A single opaque document rather than per-entity rows: what is synced is
+   * small, always read and written whole, and never queried by the server.
+   */
+  pullState(): Promise<CloudState | null>;
+  pushState(state: CloudState): Promise<void>;
+}
+
+/** What crosses the wire. Versioned so an older client can refuse a newer blob. */
+export interface CloudState {
+  version: 1;
+  updatedAt: number;
+  favorites: unknown;
+  favoriteChapters: unknown;
+  streakDays: unknown;
+  theme: string;
 }

@@ -5,11 +5,19 @@ import {
   useSessionStore,
   useSettingsStore,
   useFavoritesStore,
+  useAuthStore,
+  useStreakStore,
+  setAccountChangeHandler,
+  syncNow,
+  flushSync,
+  isThemeFree,
+  DEFAULT_THEME,
 } from '@focuspod/core';
 import IpodDevice from './components/IpodDevice';
 import InstallPrompt from './components/InstallPrompt';
 import ConsentPrompt from './components/ConsentPrompt';
 import UpdatePrompt from './components/UpdatePrompt';
+import StreakToast from './components/StreakToast';
 import { analytics, setAnalyticsConsent } from './analytics';
 
 export default function App() {
@@ -32,6 +40,20 @@ export default function App() {
       await usePlaybackStore.getState().initPlayer();
       await useSessionStore.getState().loadSessions();
       await useFavoritesStore.getState().load();
+      await useStreakStore.getState().load();
+
+      // Registered before init so the very first restored session syncs too.
+      // `adoptTheme` only on a genuine sign-in: on every later sync the local
+      // choice is the newer one and must not be overwritten by the stored blob.
+      let firstSync = true;
+      setAccountChangeHandler(account => {
+        if (!account) return;
+        if (firstSync) analytics.signInCompleted();
+        void syncNow({ adoptTheme: firstSync });
+        firstSync = false;
+      });
+      await useAuthStore.getState().init();
+
       setReady(true);
       // Downloads stop when the tab closes or the connection drops. Pick up
       // where they left off once the UI is up, so the user never has to notice.
@@ -48,9 +70,76 @@ export default function App() {
 
   // Same again when the connection comes back mid-session.
   useEffect(() => {
-    const onOnline = () => void useDownloadStore.getState().resumeInterrupted();
+    const onOnline = () => {
+      void useDownloadStore.getState().resumeInterrupted();
+      // A sync that failed while offline is worth retrying straight away.
+      void syncNow();
+    };
     window.addEventListener('online', onOnline);
     return () => window.removeEventListener('online', onOnline);
+  }, []);
+
+  /*
+   * Paint the chosen palette.
+   *
+   * Subscribed rather than read once, so a theme picked on another device and
+   * pulled in by a sync applies without a reload. The attribute is set on the
+   * root element because that is what the `:root[data-theme=…]` blocks in
+   * index.css select on.
+   */
+  useEffect(() => {
+    const apply = (theme: string) => {
+      document.documentElement.dataset.theme = theme;
+    };
+    apply(useSettingsStore.getState().preferences.theme);
+    return useSettingsStore.subscribe(state => apply(state.preferences.theme));
+  }, []);
+
+  /*
+   * Signing out gives back the locked themes, so fall back to a free one.
+   *
+   * Only once auth has actually resolved — 'loading' means we do not yet know,
+   * and stripping the theme on every cold start before the session restores
+   * would make it look like the setting never saved.
+   */
+  useEffect(
+    () =>
+      useAuthStore.subscribe(state => {
+        if (state.status !== 'signed-out') return;
+        const { theme } = useSettingsStore.getState().preferences;
+        if (!isThemeFree(theme)) void useSettingsStore.getState().update({ theme: DEFAULT_THEME });
+      }),
+    [],
+  );
+
+  /*
+   * Report the day being cleared, once, when it happens.
+   *
+   * Watched here rather than fired from the store because core has no
+   * analytics — and it has to be an increase, not any change: `current` also
+   * moves when a sync merges another device's history, which is not the
+   * listener clearing today's ten minutes.
+   */
+  useEffect(() => {
+    let previous = useStreakStore.getState().current;
+    return useStreakStore.subscribe(state => {
+      if (state.current > previous) analytics.streakDay(state.current);
+      previous = state.current;
+    });
+  }, []);
+
+  /*
+   * Push any queued sync before the tab goes away. `pagehide` is the only event
+   * iOS reliably fires before discarding a tab — the same reason playback
+   * position is persisted there.
+   */
+  useEffect(() => {
+    const flush = () => {
+      flushSync();
+      void useStreakStore.getState().suspend();
+    };
+    window.addEventListener('pagehide', flush);
+    return () => window.removeEventListener('pagehide', flush);
   }, []);
 
   if (!ready) {
@@ -75,6 +164,7 @@ export default function App() {
   return (
     <>
       <IpodDevice />
+      <StreakToast />
       <InstallPrompt />
       <ConsentPrompt />
       <UpdatePrompt />

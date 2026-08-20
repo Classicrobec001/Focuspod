@@ -23,6 +23,13 @@ import {
   usePodcastStore,
   useFavoritesStore,
   listFavorites,
+  listFavoriteChapters,
+  chapterFavoriteAsBook,
+  useAuthStore,
+  useStreakStore,
+  THEMES,
+  scheduleSync,
+  onSyncStatus,
   isPodcast,
   fetchVersions,
   type Book,
@@ -55,6 +62,11 @@ import {
   settingsRows,
   WhatsNewView,
   AboutView,
+  ThemesView,
+  StreakView,
+  AccountView,
+  FavoriteChaptersView,
+  FAVORITES_HEADER_ROWS,
 } from '../views';
 import { TapProvider } from './TapContext';
 import { analytics, setAnalyticsConsent } from '../analytics';
@@ -85,12 +97,33 @@ export default function IpodDevice() {
   const readAlong = useReadAlongStore();
   const podcasts = usePodcastStore();
   const favorites = useFavoritesStore();
+  const auth = useAuthStore();
 
   /** Search text is transient UI state — it never needs to outlive the screen. */
   const [searchQuery, setSearchQuery] = useState('');
   /** Alternate recordings of the open book; fetched on demand. */
   const [versions, setVersions] = useState<Book[]>([]);
   const [versionsLoading, setVersionsLoading] = useState(false);
+  /** Email being typed on the account screen — transient, like the search box. */
+  const [emailDraft, setEmailDraft] = useState('');
+  /** Human-readable sync state, pushed from core rather than polled. */
+  const [syncLabel, setSyncLabel] = useState('Synced to your account');
+
+  useEffect(
+    () =>
+      onSyncStatus(status => {
+        setSyncLabel(
+          status === 'syncing'
+            ? 'Syncing…'
+            : status === 'error'
+              ? 'Last sync failed — it will retry.'
+              : status === 'offline'
+                ? 'Offline — will sync when you reconnect.'
+                : 'Synced to your account',
+        );
+      }),
+    [],
+  );
 
   // ─── Data loading on entry ────────────────────────────────────────────
 
@@ -123,7 +156,11 @@ export default function IpodDevice() {
         case 'search-results':
           return library.searchResults.length;
         case 'favorites':
-          return Object.keys(favorites.items).length;
+          return FAVORITES_HEADER_ROWS + Object.keys(favorites.items).length;
+        case 'favorite-chapters':
+          return Object.keys(favorites.chapters).length;
+        case 'themes':
+          return THEMES.length;
         case 'downloads':
           return downloads.downloadedBooks().length;
         case 'book-detail':
@@ -143,12 +180,24 @@ export default function IpodDevice() {
           return 0;
         case 'now-playing':
         case 'read-along':
+        case 'streak':
+        case 'account':
           return 0; // rotation scrubs / scrolls instead of moving a cursor
         default:
           return 0;
       }
     },
-    [library.books, library.searchResults, library.selectedBook, downloads, session, podcasts.shows, versions, favorites.items],
+    [
+      library.books,
+      library.searchResults,
+      library.selectedBook,
+      downloads,
+      session,
+      podcasts.shows,
+      versions,
+      favorites.items,
+      favorites.chapters,
+    ],
   );
 
   // ─── Titles ───────────────────────────────────────────────────────────
@@ -171,6 +220,14 @@ export default function IpodDevice() {
         return `Results (${library.searchResults.length})`;
       case 'favorites':
         return 'Favourites';
+      case 'favorite-chapters':
+        return 'Saved Chapters';
+      case 'themes':
+        return 'Theme';
+      case 'streak':
+        return 'Streak';
+      case 'account':
+        return 'Account';
       case 'downloads':
         return 'Downloads';
       case 'book-detail':
@@ -280,13 +337,61 @@ export default function IpodDevice() {
       }
 
       case 'favorites': {
-        const favorite = listFavorites(favorites.items)[index];
+        // Row 0 is the saved-chapters list; the books start below it.
+        if (index < FAVORITES_HEADER_ROWS) {
+          nav.resetCursor('favorite-chapters');
+          nav.push('favorite-chapters');
+          return;
+        }
+        const favorite = listFavorites(favorites.items)[index - FAVORITES_HEADER_ROWS];
         if (!favorite) return;
         nav.resetCursor('book-detail');
         nav.push('book-detail');
         // openBook resolves chapters from downloads, the feed or the catalog,
         // whichever applies to this record.
         await library.openBook(favorite);
+        return;
+      }
+
+      case 'favorite-chapters': {
+        const saved = listFavoriteChapters(favorites.chapters)[index];
+        if (!saved) return;
+        // Plays from the stored record without fetching the book first — the
+        // whole point of saving a chapter. See chapterFavoriteAsBook.
+        analytics.play(isPodcast(saved.bookId) ? 'podcast' : 'book', saved.bookId);
+        await playback.loadBook(chapterFavoriteAsBook(saved), 0);
+        await playback.play();
+        nav.push('now-playing');
+        return;
+      }
+
+      case 'themes': {
+        const theme = THEMES[index];
+        if (!theme) return;
+        if (theme.locked && !auth.entitlements().allThemes) {
+          // Route to the thing that unlocks it rather than refusing silently.
+          nav.resetCursor('account');
+          nav.push('account');
+          analytics.themeLocked(theme.id);
+          return;
+        }
+        await settings.update({ theme: theme.id });
+        analytics.themeChange(theme.id);
+        scheduleSync();
+        return;
+      }
+
+      case 'account': {
+        if (auth.status === 'signed-in') {
+          await auth.signOut();
+          analytics.signOut();
+          return;
+        }
+        // Resending is the only useful action while waiting for a link.
+        const address = auth.status === 'link-sent' ? (auth.pendingEmail ?? '') : emailDraft;
+        if (!address) return;
+        const sent = await auth.sendLink(address);
+        if (sent) analytics.signInRequested();
         return;
       }
 
@@ -332,6 +437,7 @@ export default function IpodDevice() {
           case 'Favourite': {
             const nowFavorite = await favorites.toggle(book);
             analytics.favorite(nowFavorite, isPodcast(book.id) ? 'podcast' : 'book');
+            scheduleSync();
             return;
           }
           case 'Start Focus Session': {
@@ -455,6 +561,21 @@ export default function IpodDevice() {
           await settings.update({ lastSeenVersion: CURRENT_VERSION });
         }
         if (row === 'about') nav.push('about');
+        if (row === 'theme') {
+          nav.resetCursor('themes');
+          nav.push('themes');
+        }
+        if (row === 'account') {
+          setEmailDraft('');
+          nav.push('account');
+        }
+        if (row === 'streak') {
+          const streakEnabled = !settings.preferences.streakEnabled;
+          // Stop crediting immediately rather than at the next status change,
+          // so turning it off mid-chapter really does stop the counter.
+          if (!streakEnabled) await useStreakStore.getState().suspend();
+          await settings.update({ streakEnabled });
+        }
         if (row === 'keepAwake') {
           const keepAwake = !settings.preferences.keepAwake;
           webFocusGuard.setKeepAwake(keepAwake);
@@ -488,7 +609,7 @@ export default function IpodDevice() {
     // `podcasts` and `readAlong` are read for data here, not just actions, so
     // they must be dependencies — omitting them left handleSelect closing over
     // an empty show list, and selecting a podcast did nothing.
-  }, [screen.id, cursor, library, playback, session, downloads, settings, nav, openBook, podcasts, readAlong, versions, favorites]);
+  }, [screen.id, cursor, library, playback, session, downloads, settings, nav, openBook, podcasts, readAlong, versions, favorites, auth, emailDraft]);
 
   /**
    * A tapped row. The cursor moves there first so the highlight matches what
@@ -554,6 +675,32 @@ export default function IpodDevice() {
   // ─── Transport buttons ────────────────────────────────────────────────
 
   const handleNext = useCallback(async () => {
+    // On the chapter list ▶▶ saves the highlighted chapter instead of skipping
+    // tracks — the same repurposing the search screen already does, and the
+    // footer there says so. Nothing is playing on this screen for a skip to
+    // act on anyway.
+    if (screen.id === 'chapters') {
+      const book = library.selectedBook;
+      const chapter = book?.chapters[cursor];
+      if (!book || !chapter) return;
+      const saved = await favorites.toggleChapter(book, chapter);
+      analytics.favoriteChapter(saved);
+      scheduleSync();
+      return;
+    }
+    // Removing is the one thing worth doing to an already-saved chapter.
+    if (screen.id === 'favorite-chapters') {
+      const saved = listFavoriteChapters(favorites.chapters)[cursor];
+      if (!saved) return;
+      await favorites.removeChapter(saved.chapter.id);
+      analytics.favoriteChapter(false);
+      scheduleSync();
+      return;
+    }
+    if (screen.id === 'account') {
+      await handleSelect();
+      return;
+    }
     if (screen.id === 'search') {
       if (!searchQuery.trim()) return;
       await library.searchBooks(searchQuery);
@@ -563,7 +710,7 @@ export default function IpodDevice() {
       return;
     }
     await playback.skipToNext();
-  }, [screen.id, searchQuery, library, nav, playback]);
+  }, [screen.id, searchQuery, library, nav, playback, cursor, favorites, handleSelect]);
 
   const handlePrevious = useCallback(async () => {
     if (screen.id === 'search') {
@@ -709,6 +856,21 @@ export default function IpodDevice() {
         return <SearchResultsView cursor={cursor} />;
       case 'favorites':
         return <FavoritesView cursor={cursor} />;
+      case 'favorite-chapters':
+        return <FavoriteChaptersView cursor={cursor} />;
+      case 'themes':
+        return <ThemesView cursor={cursor} />;
+      case 'streak':
+        return <StreakView />;
+      case 'account':
+        return (
+          <AccountView
+            email={emailDraft}
+            onEmailChange={setEmailDraft}
+            onSubmit={() => run(() => handleSelect())}
+            syncLabel={syncLabel}
+          />
+        );
       case 'downloads':
         return <DownloadsView cursor={cursor} />;
       case 'book-detail':

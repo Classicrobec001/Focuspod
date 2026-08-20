@@ -31,7 +31,29 @@ export {
   buildAlignment,
   estimateParagraph,
 } from './stores/readAlongStore';
-export { useFavoritesStore, listFavorites } from './stores/favoritesStore';
+export {
+  useFavoritesStore,
+  listFavorites,
+  listFavoriteChapters,
+  chapterFavoriteAsBook,
+} from './stores/favoritesStore';
+export { useAuthStore, accountsAvailable, looksLikeEmail, setAccountChangeHandler } from './stores/authStore';
+export {
+  useStreakStore,
+  computeStreak,
+  longestStreak,
+  recentDays,
+  dayKey,
+  DAILY_GOAL_SECONDS,
+  MILESTONES,
+} from './stores/streakStore';
+export { THEMES, DEFAULT_THEME, themeMeta, isThemeFree } from './services/themes';
+export type { ThemeMeta } from './services/themes';
+export { FREE, SIGNED_IN, entitlementsFor } from './services/entitlements';
+export type { Entitlements } from './services/entitlements';
+export { syncNow, scheduleSync, flushSync, syncStatus, onSyncStatus } from './services/sync';
+export type { SyncStatus } from './services/sync';
+export type { PersistedFavorite, PersistedChapterFavorite } from './services/storage';
 export { useDownloadStore } from './stores/downloadStore';
 export type { DownloadStatus, BookDownloadState } from './stores/downloadStore';
 export { useIpodNavStore } from './stores/ipodNavStore';

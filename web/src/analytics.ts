@@ -119,6 +119,24 @@ export const analytics = {
 
   favorite: (added: boolean, kind: 'book' | 'podcast') =>
     track('favorite', { added, kind }),
+  favoriteChapter: (added: boolean) => track('favorite_chapter', { added }),
+
+  themeChange: (theme: string) => track('theme_change', { theme }),
+  /** A locked theme was tapped — the clearest measure of what the gate is worth. */
+  themeLocked: (theme: string) => track('theme_locked', { theme }),
+
+  /**
+   * Account events carry no address. Whether people sign in is a product
+   * question; who they are is not something to hand to Google. The email lives
+   * in Supabase, where it was given deliberately and can be deleted.
+   */
+  signInRequested: () => track('sign_in_requested'),
+  signInCompleted: () => track('sign_in_completed'),
+  signOut: () => track('sign_out'),
+
+  /** Fires once per day, the first time that day's ten minutes are cleared. */
+  streakDay: (streakLength: number) => track('streak_day', { streak_length: streakLength }),
+  streakMilestone: (days: number) => track('streak_milestone', { days }),
 
   install: () => track('pwa_install'),
 };

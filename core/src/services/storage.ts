@@ -4,7 +4,7 @@
  */
 
 import { storage } from '../ports/registry';
-import { Book, FocusSession, PlaybackState, UserPreferences } from '../types';
+import { Book, Chapter, FocusSession, PlaybackState, StreakState, UserPreferences } from '../types';
 
 const KEYS = {
   PREFERENCES: '@focuspod/preferences',
@@ -12,6 +12,8 @@ const KEYS = {
   SESSIONS: '@focuspod/sessions',
   DOWNLOADS: '@focuspod/downloads',
   FAVORITES: '@focuspod/favorites',
+  FAVORITE_CHAPTERS: '@focuspod/favorite_chapters',
+  STREAK: '@focuspod/streak',
   CATALOG_CACHE: '@focuspod/catalog_cache',
 } as const;
 
@@ -92,6 +94,37 @@ export const loadFavorites = async () =>
   (await readJson<Record<string, PersistedFavorite>>(KEYS.FAVORITES)) ?? {};
 export const saveFavorites = (items: Record<string, PersistedFavorite>) =>
   writeJson(KEYS.FAVORITES, items);
+
+/**
+ * A single favourited chapter.
+ *
+ * Unlike a favourited *book*, this keeps the whole `Chapter` — including its
+ * audio URL. A favourite chapter is meant to be one press from playing, and
+ * re-deriving the URL would mean re-fetching the book's metadata first, which
+ * is exactly the delay the feature exists to remove. It is also what lets a
+ * downloaded chapter play with no network at all.
+ *
+ * `bookTitle` and `coverUrl` are copied rather than looked up, so the list can
+ * be drawn without touching the favourites or downloads index.
+ */
+export interface PersistedChapterFavorite {
+  chapter: Chapter;
+  bookId: string;
+  bookTitle: string;
+  author: string;
+  coverUrl: string;
+  addedAt: number;
+}
+
+export const loadFavoriteChapters = async () =>
+  (await readJson<Record<string, PersistedChapterFavorite>>(KEYS.FAVORITE_CHAPTERS)) ?? {};
+export const saveFavoriteChapters = (items: Record<string, PersistedChapterFavorite>) =>
+  writeJson(KEYS.FAVORITE_CHAPTERS, items);
+
+// ─── Streak ───────────────────────────────────────────────────────────────
+
+export const loadStreak = () => readJson<StreakState>(KEYS.STREAK);
+export const saveStreak = (state: StreakState) => writeJson(KEYS.STREAK, state);
 
 // ─── Catalog cache ────────────────────────────────────────────────────────
 

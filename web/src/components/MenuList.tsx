@@ -18,6 +18,12 @@ export interface MenuItem {
   meta?: string;
   /** Show the ">" affordance for rows that push a new screen. */
   arrow?: boolean;
+  /**
+   * A colour dot before the label. Used by the theme picker, where the row has
+   * to show a palette that is not the one currently applied — so the colour
+   * cannot come from a custom property and is passed in instead.
+   */
+  accent?: string;
 }
 
 interface MenuListProps {
@@ -103,6 +109,9 @@ export default function MenuList({ items, cursor, emptyMessage = 'Nothing here' 
                   : undefined
               }
             >
+              {item.accent && (
+                <span className="swatch" style={{ background: item.accent }} aria-hidden="true" />
+              )}
               <span className="menu__label">{item.label}</span>
               {item.meta && <span className="menu__meta">{item.meta}</span>}
               {item.arrow && <span className="menu__arrow">›</span>}

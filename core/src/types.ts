@@ -85,7 +85,20 @@ export interface FocusSession {
 
 // ─── Preferences ──────────────────────────────────────────────────────────
 
-export type AppTheme = 'dark' | 'light';
+/**
+ * Theme ids. 'classic' and 'midnight' are what used to be 'light' and 'dark';
+ * settingsStore migrates the two old values on read, so a stored preference
+ * from an earlier build still resolves.
+ */
+export type AppTheme =
+  | 'classic'
+  | 'midnight'
+  | 'strawberry'
+  | 'matcha'
+  | 'blueberry'
+  | 'peach'
+  | 'lavender'
+  | 'bubblegum';
 
 export interface UserPreferences {
   theme: AppTheme;
@@ -107,6 +120,12 @@ export interface UserPreferences {
   analyticsConsent: boolean | null;
   /** Version whose release notes have been read, for the What's New marker. */
   lastSeenVersion: string | null;
+  /**
+   * Whether to keep a listening streak. Opt-out rather than opt-in: the counter
+   * is local and costs nothing, but a streak is a pressure some listeners
+   * explicitly do not want, and turning it off must actually stop the counting.
+   */
+  streakEnabled: boolean;
 }
 
 // ─── Blocking ─────────────────────────────────────────────────────────────
@@ -115,4 +134,45 @@ export interface BlockableApp {
   packageName: string;
   appName: string;
   icon?: string;
+}
+
+// ─── Account ──────────────────────────────────────────────────────────────
+
+/**
+ * A signed-in listener. Deliberately tiny: the email is the only thing the app
+ * ever knows about a person, and there is no profile, name or avatar to leak.
+ */
+export interface Account {
+  id: string;
+  email: string;
+}
+
+export type AuthStatus =
+  /** No auth implementation was configured in this build. */
+  | 'unavailable'
+  /** Restoring a stored session; unknown either way. */
+  | 'loading'
+  | 'signed-out'
+  /** A link has been sent and we are waiting for it to be opened. */
+  | 'link-sent'
+  | 'signed-in';
+
+// ─── Streak ───────────────────────────────────────────────────────────────
+
+/**
+ * Listening totals per local calendar day, `YYYY-MM-DD` → seconds.
+ *
+ * Local dates, not UTC: a streak is about the listener's day. The cost is that
+ * flying across timezones can gift or cost a day, which is the right trade —
+ * the alternative punishes anyone who listens in the evening east of UTC.
+ */
+export type StreakDays = Record<string, number>;
+
+export interface StreakState {
+  days: StreakDays;
+  /** Consecutive qualifying days ending today or yesterday. */
+  current: number;
+  longest: number;
+  /** Milestone day-counts already celebrated, so a badge is only shown once. */
+  celebrated: number[];
 }

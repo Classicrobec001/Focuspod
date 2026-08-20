@@ -79,3 +79,10 @@ dist/
 dev-dist/
 .vite/
 *.local
+
+# Local build-time provider config: GA measurement id, Supabase url + anon key.
+# None of these are secret — they all ship in the bundle — but they are
+# per-checkout, and CI supplies its own from repository variables.
+.env
+.env.*
+!.env.example
