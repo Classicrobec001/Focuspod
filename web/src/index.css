@@ -73,7 +73,10 @@ body {
   font-family: var(--font-ui);
   /* Matches the device body so any rubber-band overscroll on iOS reveals more
      casing rather than a dark strip behind it. */
-  background: var(--device-body);
+  /* The casing gradient ends on --device-body-dim; matching it means the
+     strip iOS can leave below a fixed element in standalone mode is
+     invisible. */
+  background: var(--device-body-dim);
   color: var(--row-text);
   overscroll-behavior: none;
   /* The wheel is a drag surface: stop the page rubber-banding under it and
@@ -467,7 +470,10 @@ body {
   min-height: 0;
   /* Absorbs whatever height is left below the LCD, so the wheel
      is optically centred in the lower casing at any screen size. */
-  padding: 6px 0;
+  /* The top padding is the gap between the LCD and the wheel. The wheel is
+     sized from the content box (cqh), so this gap holds at any screen size;
+     the wheel shrinks slightly instead of touching the screen. */
+  padding: clamp(16px, 3vh, 30px) 0 6px;
   /* A size container, so the wheel can measure the space it actually has
      (cqw/cqh) instead of guessing from the viewport. */
   container-type: size;
