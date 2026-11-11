@@ -57,6 +57,30 @@ export const SORT_LABELS: Record<SortOption, string> = {
 };
 
 /**
+ * Short Listens: books a new listener can actually finish.
+ *
+ * A 15-hour novel is a big commitment, and finishing something is what turns
+ * a first visit into a habit. Seconds; 0 elsewhere means "any length".
+ */
+export const LENGTH_FILTERS = [
+  { maxDuration: 60 * 60, label: 'Under an hour' },
+  { maxDuration: 3 * 60 * 60, label: 'Under 3 hours' },
+] as const;
+
+export function lengthLabel(maxDuration: number): string | undefined {
+  return LENGTH_FILTERS.find(f => f.maxDuration === maxDuration)?.label;
+}
+
+/**
+ * The search backend cannot range-query `runtime` (it is a "H:MM:SS" string),
+ * but it can range-query `item_size`. A LibriVox item holds every derivative of
+ * the recording, measured at 41–58 KB per second of audio (p10–p90 over the
+ * 400 most popular items), so this bound keeps nearly every book under the
+ * limit while dropping most of the rest. The exact cut is then made on runtime.
+ */
+const MAX_BYTES_PER_SECOND = 62_000;
+
+/**
  * Browsable categories.
  *
  * Most are a single `subject` tag, but faiths need more than that: LibriVox
@@ -210,6 +234,20 @@ function stripHtml(html: string): string {
  * Archive durations come in two shapes: "MM:SS" / "H:MM:SS" on derived audio
  * files and item runtimes, or a bare float of seconds ("506.19") on others.
  */
+/**
+ * A whole item's `runtime`. Mostly "H:MM:SS", but about 50 of the 3,000 most
+ * popular items write "H:MM.SS" — a full stop before the seconds. Anne of Green
+ * Gables is "10:30.11" (its chapters sum to 631.7 min); read the generic way it
+ * became 630 seconds, showed as "10m", and put a ten-hour book on the Under an
+ * hour shelf. Only runtimes get this rule: a chapter file's "45:12.34" may
+ * honestly be 45 minutes and 12.34 seconds.
+ */
+function parseRuntime(raw: string | undefined): number {
+  const dotted = raw ? /^(\d+):(\d{1,2})\.(\d{1,2})$/.exec(raw.trim()) : null;
+  if (dotted) return Number(dotted[1]) * 3600 + Number(dotted[2]) * 60 + Number(dotted[3]);
+  return parseDuration(raw);
+}
+
 function parseDuration(raw: string | undefined): number {
   if (!raw) return 0;
   const value = raw.trim();
@@ -330,8 +368,15 @@ function escapeLucene(term: string): string {
   return term.replace(/([+\-!(){}[\]^"~*?:\\/]|&&|\|\|)/g, '\\$1');
 }
 
-function buildQuery(search?: string, genre?: string): string {
+function buildQuery(search?: string, genre?: string, maxDuration?: number): string {
   const clauses = [`collection:${COLLECTION}`];
+
+  if (maxDuration && maxDuration > 0) {
+    clauses.push(`item_size:[1 TO ${Math.round(maxDuration * MAX_BYTES_PER_SECOND)}]`);
+    // Items with no runtime can't be shown a length, and are mostly not
+    // audiobooks at all (stray collection members).
+    clauses.push('runtime:*');
+  }
 
   if (search?.trim()) {
     const term = escapeLucene(search.trim());
@@ -365,7 +410,7 @@ function searchDocToBook(doc: SearchDoc): Book {
     coverUrl: `${COVER_URL}/${encodeURIComponent(doc.identifier)}`,
     categories: list(doc.subject).slice(0, 6),
     chapters: [],
-    duration: parseDuration(first(doc.runtime)),
+    duration: parseRuntime(first(doc.runtime)),
   };
 }
 
@@ -377,23 +422,36 @@ export function isHydrated(book: Book): boolean {
   return book.chapters.length > 0;
 }
 
-export async function fetchBooks(
-  params: {
-    search?: string;
-    genre?: string;
-    sort?: SortOption;
-    limit?: number;
-    offset?: number;
-  },
+export interface BrowseParams {
+  search?: string;
+  genre?: string;
+  sort?: SortOption;
+  /** Seconds; only books at most this long. 0 or absent = any length. */
+  maxDuration?: number;
+  limit?: number;
+  offset?: number;
+}
+
+export async function fetchBooks(params: BrowseParams, signal?: AbortSignal): Promise<Book[]> {
+  return (await fetchBooksPage(params, signal)).books;
+}
+
+/**
+ * One page of results, plus how many rows the page held before the exact
+ * length cut. Pagination has to advance by the raw count — a filtered page is
+ * shorter than `limit` without being the last one.
+ */
+export async function fetchBooksPage(
+  params: BrowseParams,
   signal?: AbortSignal,
-): Promise<Book[]> {
+): Promise<{ books: Book[]; rawCount: number }> {
   const limit = params.limit ?? 50;
   const offset = params.offset ?? 0;
   // advancedsearch.php paginates by 1-based page number rather than by offset.
   const page = Math.floor(offset / limit) + 1;
 
   const query: Array<[string, string | number]> = [
-    ['q', buildQuery(params.search, params.genre)],
+    ['q', buildQuery(params.search, params.genre, params.maxDuration)],
     ['fl[]', 'identifier'],
     ['fl[]', 'title'],
     ['fl[]', 'creator'],
@@ -418,7 +476,10 @@ export async function fetchBooks(
 
   const json = await getJson<{ response?: { docs?: SearchDoc[] } }>(url, signal);
   const docs = json.response?.docs ?? [];
-  return docs.filter(d => d.identifier).map(searchDocToBook);
+  let books = docs.filter(d => d.identifier).map(searchDocToBook);
+  const max = params.maxDuration ?? 0;
+  if (max > 0) books = books.filter(b => b.duration > 0 && b.duration <= max);
+  return { books, rawCount: docs.length };
 }
 
 /**
@@ -512,7 +573,7 @@ export async function fetchBook(id: string, signal?: AbortSignal): Promise<Book 
 
   const meta = json.metadata;
   const chapters = toChapters(id, json.files ?? []);
-  const runtime = parseDuration(first(meta.runtime));
+  const runtime = parseRuntime(first(meta.runtime));
   const description = stripHtml(first(meta.description));
 
   return {

@@ -58,6 +58,18 @@ export default defineConfig({
         navigateFallbackDenylist: [/^\/api/],
         runtimeCaching: [
           {
+            // Intro-skip tables (scripts/intro-skips), a few KB per book,
+            // fetched when a book is played or downloaded. Cached so a
+            // downloaded book still skips the LibriVox notice offline.
+            urlPattern: ({ url }) => /\/intros\/[^/]+\.json$/.test(url.pathname),
+            handler: 'StaleWhileRevalidate',
+            options: {
+              cacheName: 'focuspod-intros',
+              expiration: { maxEntries: 500, maxAgeSeconds: 60 * 60 * 24 * 90 },
+              cacheableResponse: { statuses: [200] },
+            },
+          },
+          {
             urlPattern: /^https:\/\/archive\.org\/(advancedsearch\.php|metadata)/,
             handler: 'NetworkFirst',
             options: {

@@ -35,6 +35,13 @@ export class WebAudioPort implements AudioPort {
   private recovering = false;
   /** Object URL for the chapter currently loaded from the offline cache. */
   private objectUrl: string | null = null;
+  /**
+   * A seek requested before the chapter's metadata arrived. Setting
+   * currentTime that early is ignored by browsers (and the old seekTo simply
+   * returned), which silently dropped both resume positions and intro skips.
+   * Applied on 'loadedmetadata'.
+   */
+  private pendingSeek: number | null = null;
 
   async setup(): Promise<void> {
     this.ensureElement();
@@ -68,6 +75,12 @@ export class WebAudioPort implements AudioPort {
       this.syncPositionState();
     });
     el.addEventListener('durationchange', () => this.syncPositionState());
+    el.addEventListener('loadedmetadata', () => {
+      if (this.pendingSeek === null) return;
+      const target = this.pendingSeek;
+      this.pendingSeek = null;
+      if (Number.isFinite(el.duration)) el.currentTime = Math.min(el.duration, target);
+    });
     el.addEventListener('playing', () => this.emit({ type: 'status', status: 'playing' }));
     el.addEventListener('pause', () => {
       // A pause fired at the very end of a chapter is the transition to the
@@ -253,6 +266,9 @@ export class WebAudioPort implements AudioPort {
     el.src = src;
     el.playbackRate = this.rate;
     el.load();
+    // Every way onto a track (start, auto-advance, skip, recovery) comes
+    // through here, so this is the one place the intro skip has to live.
+    this.pendingSeek = track.startAt && track.startAt > 0 ? track.startAt : null;
     this.updateMetadata(track);
   }
 
@@ -308,13 +324,19 @@ export class WebAudioPort implements AudioPort {
     const el = this.ensureElement();
     el.pause();
     el.currentTime = 0;
+    this.pendingSeek = null;
     this.releaseObjectUrl();
     this.emit({ type: 'status', status: 'idle' });
   }
 
   async seekTo(seconds: number): Promise<void> {
     const el = this.ensureElement();
-    if (!Number.isFinite(el.duration)) return;
+    if (!Number.isFinite(el.duration)) {
+      // Not loaded yet — remember it rather than dropping it.
+      this.pendingSeek = Math.max(0, seconds);
+      return;
+    }
+    this.pendingSeek = null;
     el.currentTime = Math.max(0, Math.min(el.duration, seconds));
   }
 
@@ -353,7 +375,9 @@ export class WebAudioPort implements AudioPort {
   async getProgress(): Promise<{ position: number; duration: number }> {
     const el = this.ensureElement();
     return {
-      position: el.currentTime,
+      // While a seek is pending the element still reads 0; report where it is
+      // about to be, so a relative seek (wheel scrub) builds on the right spot.
+      position: this.pendingSeek ?? el.currentTime,
       duration: Number.isFinite(el.duration) ? el.duration : 0,
     };
   }

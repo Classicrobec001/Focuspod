@@ -3,6 +3,7 @@ import { Book } from '../types';
 import {
   fetchBook,
   fetchBooks,
+  fetchBooksPage,
   isHydrated,
   type GenreKey,
   type SortOption,
@@ -38,6 +39,8 @@ interface LibraryState {
   /** Active browse filters. Changing either refetches from the first page. */
   genre: GenreKey;
   sort: SortOption;
+  /** Short Listens: max seconds, or 0 for any length. */
+  maxDuration: number;
   searchResults: Book[];
   selectedBook: Book | null;
   isLoading: boolean;
@@ -48,7 +51,10 @@ interface LibraryState {
 
   loadBooks: () => Promise<void>;
   loadMore: () => Promise<void>;
+  /** Browse a genre, at any length. */
   setGenre: (genre: GenreKey) => Promise<void>;
+  /** Browse short books across all genres (Short Listens). 0 clears it. */
+  setMaxDuration: (seconds: number) => Promise<void>;
   setSort: (sort: SortOption) => Promise<void>;
   searchBooks: (query: string) => Promise<void>;
   selectBook: (bookId: string) => Promise<void>;
@@ -68,6 +74,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   books: [],
   genre: '',
   sort: 'popular',
+  maxDuration: 0,
   searchResults: [],
   selectedBook: null,
   isLoading: false,
@@ -79,10 +86,10 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   loadBooks: async () => {
     if (get().books.length > 0) return;
 
-    const { genre, sort } = get();
+    const { genre, sort, maxDuration } = get();
     // Cache per filter combination, otherwise switching genre would show the
     // previous genre's cached page.
-    const cacheKey = `browse:${sort}:${genre}`;
+    const cacheKey = `browse:${sort}:${genre}:${maxDuration}`;
 
     // Serve cache first so the list is instant on repeat visits, then refresh
     // in the background.
@@ -94,8 +101,16 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
 
     set({ isLoading: true, error: null });
     try {
-      const books = await fetchBooks({ limit: PAGE_SIZE, offset: 0, genre, sort });
-      set({ books, offset: books.length, hasMore: books.length === PAGE_SIZE });
+      const { books, rawCount } = await fetchBooksPage({
+        limit: PAGE_SIZE,
+        offset: 0,
+        genre,
+        sort,
+        maxDuration,
+      });
+      // Advance by the raw page: the length filter can thin a page that is
+      // not the last one.
+      set({ books, offset: rawCount, hasMore: rawCount === PAGE_SIZE });
       void writeCatalogCache(cacheKey, books);
     } catch (e) {
       if (isAbortError(e)) {
@@ -113,16 +128,22 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     if (isLoading || !hasMore || searchQuery) return;
     set({ isLoading: true });
     try {
-      const { genre, sort } = get();
-      const next = await fetchBooks({ limit: MORE_SIZE, offset, genre, sort });
+      const { genre, sort, maxDuration } = get();
+      const { books: next, rawCount } = await fetchBooksPage({
+        limit: MORE_SIZE,
+        offset,
+        genre,
+        sort,
+        maxDuration,
+      });
       // The Archive paginates by page number, so a partial final page can
       // repeat items already held; drop those rather than showing duplicates.
       const known = new Set(books.map(b => b.id));
       const fresh = next.filter(b => !known.has(b.id));
       set({
         books: [...books, ...fresh],
-        offset: offset + next.length,
-        hasMore: next.length === MORE_SIZE,
+        offset: offset + rawCount,
+        hasMore: rawCount === MORE_SIZE,
       });
     } catch (e) {
       if (!isAbortError(e)) set({ error: catalogError(e) });
@@ -211,8 +232,14 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   },
 
   setGenre: async genre => {
-    if (get().genre === genre) return;
-    set({ genre, books: [], offset: 0, hasMore: true, error: null });
+    if (get().genre === genre && get().maxDuration === 0) return;
+    set({ genre, maxDuration: 0, books: [], offset: 0, hasMore: true, error: null });
+    await get().loadBooks();
+  },
+
+  setMaxDuration: async seconds => {
+    if (get().maxDuration === seconds && get().genre === '') return;
+    set({ maxDuration: seconds, genre: '', books: [], offset: 0, hasMore: true, error: null });
     await get().loadBooks();
   },
 

@@ -23,6 +23,12 @@ export interface AudioTrack {
   artwork?: string;
   /** Seconds, when known ahead of time. */
   duration?: number;
+  /**
+   * Where to begin this track when the engine moves onto it — past the
+   * LibriVox disclaimer, see introService. Applies to every way of arriving
+   * (auto-advance, skip, recovery); an explicit seekTo() afterwards wins.
+   */
+  startAt?: number;
 }
 
 export type AudioEvent =

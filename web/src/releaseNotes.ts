@@ -18,6 +18,17 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.8.0',
+    date: 'November 2026',
+    items: [
+      'No more "This is a LibriVox recording…" at the start of every chapter on popular books — chapters begin with the reader and the story. Settings › Skip LibriVox intro turns it off.',
+      'Hear a reader before you commit: Hear a Sample on any book, or ▶❙❙ on any reader in Other Recordings, plays 30 seconds.',
+      'Short Listens on the main menu: books under an hour or under three hours, for when you want to finish something.',
+      'Resuming a book now reliably returns to where you left off.',
+      'The click wheel is a true circle on every screen size.',
+    ],
+  },
+  {
     version: '1.7.0',
     date: 'August 2026',
     items: [

@@ -17,6 +17,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   analyticsConsent: null,
   lastSeenVersion: null,
   streakEnabled: true,
+  skipIntros: true,
 };
 
 /**

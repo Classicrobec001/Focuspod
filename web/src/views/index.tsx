@@ -23,6 +23,8 @@ import {
   PLAYBACK_RATES,
   GENRES,
   SORT_LABELS,
+  LENGTH_FILTERS,
+  lengthLabel,
   PODCAST_TOPICS,
   usePodcastStore,
   useFavoritesStore,
@@ -41,12 +43,14 @@ import MenuList, { MenuItem } from '../components/MenuList';
 import { RELEASE_NOTES, hasUnreadNotes } from '../releaseNotes';
 import { analyticsConfigured } from '../analytics';
 import { accountsConfigured } from '../ports';
+import { useSampleStore } from '../sample';
 
 // ─── Home ─────────────────────────────────────────────────────────────────
 
 export const HOME_ITEMS = [
   { key: 'audiobooks', label: 'Audiobooks' },
   { key: 'genres', label: 'Genres' },
+  { key: 'short-listens', label: 'Short Listens' },
   { key: 'podcast-topics', label: 'Podcasts' },
   { key: 'search', label: 'Search' },
   { key: 'favorites', label: 'Favourites' },
@@ -70,8 +74,9 @@ export function HomeMenuView({ cursor }: { cursor: number }) {
 // ─── Audiobooks ───────────────────────────────────────────────────────────
 
 export function AudiobooksView({ cursor }: { cursor: number }) {
-  const { books, isLoading, error, genre, sort } = useLibraryStore();
-  const genreLabel = GENRES.find(g => g.key === genre)?.label ?? 'All books';
+  const { books, isLoading, error, genre, sort, maxDuration } = useLibraryStore();
+  const genreLabel =
+    lengthLabel(maxDuration) ?? GENRES.find(g => g.key === genre)?.label ?? 'All books';
 
   if (error) {
     return (
@@ -107,6 +112,29 @@ export function AudiobooksView({ cursor }: { cursor: number }) {
       <div className="status" style={{ padding: '2px 8px' }}>
         {genreLabel} · {SORT_LABELS[sort]}
         {isLoading ? ' · loading…' : ''}
+      </div>
+    </>
+  );
+}
+
+// ─── Short listens ────────────────────────────────────────────────────────
+
+/** Length shelves. Picking one opens the ordinary book list, filtered. */
+export function ShortListensView({ cursor }: { cursor: number }) {
+  const maxDuration = useLibraryStore(s => s.maxDuration);
+  return (
+    <>
+      <MenuList
+        cursor={cursor}
+        items={LENGTH_FILTERS.map<MenuItem>(f => ({
+          key: String(f.maxDuration),
+          label: f.label,
+          meta: f.maxDuration === maxDuration ? '●' : undefined,
+          arrow: true,
+        }))}
+      />
+      <div className="status" style={{ padding: '2px 8px' }}>
+        Stories, poems and books you can finish today
       </div>
     </>
   );
@@ -429,6 +457,7 @@ export function FavoriteChaptersView({ cursor }: { cursor: number }) {
 
 export const BOOK_ACTIONS = [
   'Play',
+  'Hear a Sample',
   'Favourite',
   'Start Focus Session',
   'Download',
@@ -442,6 +471,16 @@ export function BookDetailView({ cursor }: { cursor: number }) {
   const isLoading = useLibraryStore(s => s.isLoading);
   const download = useDownloadStore(s => (book ? s.books[book.id] : undefined));
   const isFavorite = useFavoritesStore(s => (book ? Boolean(s.items[book.id]) : false));
+  const sample = useSampleStore();
+  const sampling = book != null && sample.bookId === book.id;
+  const sampleLabel =
+    sampling && sample.status === 'loading'
+      ? 'Loading sample…'
+      : sampling && sample.status === 'playing'
+        ? `Stop Sample · ${sample.remaining}s`
+        : sampling && sample.status === 'error'
+          ? (sample.message ?? 'Sample unavailable')
+          : 'Hear a Sample';
 
   if (!book) {
     return (
@@ -497,7 +536,9 @@ export function BookDetailView({ cursor }: { cursor: number }) {
                   ? isFavorite
                     ? 'Remove from Favourites'
                     : 'Add to Favourites'
-                  : action,
+                  : action === 'Hear a Sample'
+                    ? sampleLabel
+                    : action,
             meta: action === 'Favourite' && isFavorite ? '★' : undefined,
             arrow: action === 'Chapters' || action === 'Other Recordings',
           }))}
@@ -577,6 +618,7 @@ export function VersionsView({
   versions: Book[];
   isLoading: boolean;
 }) {
+  const sample = useSampleStore();
   if (isLoading) {
     return (
       <div className="panel__center">
@@ -593,13 +635,22 @@ export function VersionsView({
           key: v.id,
           // The reader is the reason to switch, so it leads where it is known.
           label: v.narrator ?? v.title,
-          meta: v.duration > 0 ? formatDuration(v.duration) : undefined,
+          meta:
+            sample.bookId === v.id && sample.status === 'loading'
+              ? '…'
+              : sample.bookId === v.id && sample.status === 'playing'
+                ? `♪ ${sample.remaining}s`
+                : v.duration > 0
+                  ? formatDuration(v.duration)
+                  : undefined,
           arrow: true,
         }))}
       />
       {versions.length > 0 && (
         <div className="status" style={{ padding: '2px 8px' }}>
-          {versions.length} other recording{versions.length === 1 ? '' : 's'}
+          {sample.status === 'error' && sample.message
+            ? sample.message
+            : `▶❙❙ hear this reader · ● choose`}
         </div>
       )}
     </>
@@ -1184,6 +1235,7 @@ export type SettingsRow =
   | 'tap'
   | 'keepAwake'
   | 'rate'
+  | 'intros'
   | 'sort'
   | 'duration'
   | 'streak'
@@ -1208,6 +1260,7 @@ export function settingsRows(): SettingsRow[] {
     'tap',
     'keepAwake',
     'rate',
+    'intros',
     'sort',
     'duration',
     'streak',
@@ -1261,6 +1314,7 @@ export function SettingsView({ cursor }: { cursor: number }) {
     tap: { key: 'tap', label: 'Tap to select', meta: prefs.tapToSelect ? 'On' : 'Off' },
     keepAwake: { key: 'keepAwake', label: 'Keep screen awake', meta: prefs.keepAwake ? 'On' : 'Off' },
     rate: { key: 'rate', label: 'Playback speed', meta: `${prefs.playbackRate}×` },
+    intros: { key: 'intros', label: 'Skip LibriVox intro', meta: prefs.skipIntros ? 'On' : 'Off' },
     sort: { key: 'sort', label: 'Browse order', meta: SORT_LABELS[sort] },
     duration: { key: 'duration', label: 'Default session', meta: `${prefs.defaultSessionDuration}m` },
     storage: { key: 'storage', label: 'Offline storage', meta: storageMeta },

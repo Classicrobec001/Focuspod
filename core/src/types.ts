@@ -126,6 +126,12 @@ export interface UserPreferences {
    * explicitly do not want, and turning it off must actually stop the counting.
    */
   streakEnabled: boolean;
+  /**
+   * Start LibriVox chapters after the spoken "This is a LibriVox recording…"
+   * notice, where its end has been measured. On by default; off restores the
+   * recordings exactly as published.
+   */
+  skipIntros: boolean;
 }
 
 // ─── Blocking ─────────────────────────────────────────────────────────────

@@ -6,6 +6,7 @@ import { loadPlaybackState, savePlaybackState } from '../services/storage';
 import { useStreakStore } from './streakStore';
 import { useSettingsStore } from './settingsStore';
 import { useAuthStore } from './authStore';
+import { introEndsFor } from '../services/introService';
 
 /**
  * Credit listening time towards the streak.
@@ -50,19 +51,30 @@ interface PlaybackStoreState {
   persistPosition: () => Promise<void>;
 }
 
-/** Resolve each chapter to a local file when downloaded, else the stream URL. */
+/**
+ * Resolve each chapter to a local file when downloaded, else the stream URL,
+ * and to a start point past the LibriVox notice when one has been measured.
+ */
 async function buildQueue(book: Book): Promise<AudioTrack[]> {
-  return Promise.all(
-    book.chapters.map(async chapter => ({
-      id: chapter.id,
-      url: await downloads().resolveUrl(book.id, chapter.id, chapter.audioUrl),
-      title: chapter.title,
-      artist: book.author,
-      album: book.title,
-      artwork: book.coverUrl,
-      duration: chapter.duration,
-    })),
-  );
+  const skipIntros = useSettingsStore.getState().preferences.skipIntros;
+  const [urls, starts] = await Promise.all([
+    Promise.all(
+      book.chapters.map(chapter =>
+        downloads().resolveUrl(book.id, chapter.id, chapter.audioUrl),
+      ),
+    ),
+    skipIntros ? introEndsFor(book.chapters) : Promise.resolve([] as number[]),
+  ]);
+  return book.chapters.map((chapter, i) => ({
+    id: chapter.id,
+    url: urls[i],
+    title: chapter.title,
+    artist: book.author,
+    album: book.title,
+    artwork: book.coverUrl,
+    duration: chapter.duration,
+    startAt: starts[i] > 0 ? starts[i] : undefined,
+  }));
 }
 
 export const usePlaybackStore = create<PlaybackStoreState>((set, get) => ({

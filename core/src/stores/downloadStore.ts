@@ -14,6 +14,7 @@
  */
 
 import { create } from 'zustand';
+import { introKey, loadIntroSkips } from '../services/introService';
 import { Book } from '../types';
 import { downloads } from '../ports/registry';
 import { loadDownloadIndex, PersistedDownload, saveDownloadIndex } from '../services/storage';
@@ -106,6 +107,12 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
 
     const controller = new AbortController();
     controllers.set(book.id, controller);
+
+    // Fetch the intro-skip table while online, so the offline copy still
+    // starts each chapter after the LibriVox notice. The web service worker
+    // caches the response; failure just means no skipping.
+    const firstKey = introKey(book.chapters[0].audioUrl);
+    if (firstKey) void loadIntroSkips(firstKey.identifier);
 
     const already = get().books[book.id]?.chapterIds ?? [];
     set(s => ({

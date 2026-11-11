@@ -19,6 +19,7 @@ import {
   useSessionStore,
   useSettingsStore,
   GENRES,
+  LENGTH_FILTERS,
   PODCAST_TOPICS,
   usePodcastStore,
   useFavoritesStore,
@@ -48,6 +49,7 @@ import {
   FavoritesView,
   FocusView,
   GenresView,
+  ShortListensView,
   HomeMenuView,
   PodcastShowsView,
   PodcastTopicsView,
@@ -72,6 +74,7 @@ import { TapProvider } from './TapContext';
 import { analytics, setAnalyticsConsent } from '../analytics';
 import { CURRENT_VERSION } from '../releaseNotes';
 import { webFocusGuard } from '../ports';
+import { stopSample, toggleSample } from '../sample';
 
 /** Seconds of audio a single wheel detent scrubs on the Now Playing screen. */
 const SEEK_PER_DETENT = 10;
@@ -147,6 +150,8 @@ export default function IpodDevice() {
           return library.books.length;
         case 'genres':
           return GENRES.length;
+        case 'short-listens':
+          return LENGTH_FILTERS.length;
         case 'podcast-topics':
           return PODCAST_TOPICS.length;
         case 'podcast-shows':
@@ -210,6 +215,8 @@ export default function IpodDevice() {
         return 'Audiobooks';
       case 'genres':
         return 'Genres';
+      case 'short-listens':
+        return 'Short Listens';
       case 'podcast-topics':
         return 'Podcasts';
       case 'podcast-shows':
@@ -301,6 +308,16 @@ export default function IpodDevice() {
         nav.push('audiobooks');
         analytics.browseGenre(genre.key);
         await library.setGenre(genre.key as GenreKey);
+        return;
+      }
+
+      case 'short-listens': {
+        const filter = LENGTH_FILTERS[index];
+        if (!filter) return;
+        // Same order as genres: show the list screen at once, then fetch.
+        nav.resetCursor('audiobooks');
+        nav.push('audiobooks');
+        await library.setMaxDuration(filter.maxDuration);
         return;
       }
 
@@ -404,6 +421,7 @@ export default function IpodDevice() {
       case 'versions': {
         const chosen = versions[index];
         if (!chosen) return;
+        await stopSample();
         // Replace the open book with the chosen reading and return to detail,
         // so Play/Download/Read Along all act on the recording just picked.
         nav.pop();
@@ -428,10 +446,15 @@ export default function IpodDevice() {
         switch (BOOK_ACTIONS[index]) {
           case 'Play': {
             if (book.chapters.length === 0) return; // still hydrating
+            await stopSample({ resume: false });
             analytics.play(isPodcast(book.id) ? 'podcast' : 'book', book.id);
             await playback.loadBook(book, 0);
             await playback.play();
             nav.push('now-playing');
+            return;
+          }
+          case 'Hear a Sample': {
+            await toggleSample(book);
             return;
           }
           case 'Favourite': {
@@ -586,6 +609,11 @@ export default function IpodDevice() {
           const next = order[(order.indexOf(library.sort) + 1) % order.length];
           await library.setSort(next);
         }
+        if (row === 'intros') {
+          // Takes effect from the next book or chapter list loaded; the queue
+          // already playing keeps the start points it was built with.
+          await settings.update({ skipIntros: !settings.preferences.skipIntros });
+        }
         if (row === 'rate') {
           const i = PLAYBACK_RATES.indexOf(settings.preferences.playbackRate);
           const rate = PLAYBACK_RATES[(i + 1) % PLAYBACK_RATES.length];
@@ -721,8 +749,21 @@ export default function IpodDevice() {
   }, [screen.id, playback]);
 
   const handlePlayPause = useCallback(async () => {
+    // On Other Recordings ▶❙❙ plays a sample of the highlighted reader — there
+    // is nothing else on that screen for it to act on, and the footer says so.
+    if (screen.id === 'versions') {
+      const version = versions[cursor];
+      if (version) await toggleSample(version);
+      return;
+    }
     await playback.togglePlayPause();
-  }, [playback]);
+  }, [playback, screen.id, versions, cursor]);
+
+  // A sample belongs to the row it was started from: moving off that row or
+  // leaving the screen ends it and hands the book back.
+  useEffect(() => {
+    void stopSample();
+  }, [screen.id, screen.id === 'versions' ? cursor : -1]);
 
   // ─── Rotation ─────────────────────────────────────────────────────────
 
@@ -839,6 +880,8 @@ export default function IpodDevice() {
         return <AudiobooksView cursor={cursor} />;
       case 'genres':
         return <GenresView cursor={cursor} />;
+      case 'short-listens':
+        return <ShortListensView cursor={cursor} />;
       case 'podcast-topics':
         return <PodcastTopicsView cursor={cursor} />;
       case 'podcast-shows':
@@ -925,7 +968,6 @@ export default function IpodDevice() {
         onRotate={handleRotate}
       />
 
-        <div className="brand">FocusPod</div>
       </div>
     </TapProvider>
   );
