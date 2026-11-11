@@ -25,7 +25,7 @@ export const RELEASE_NOTES: ReleaseNote[] = [
       'Hear a reader before you commit: Hear a Sample on any book, or ▶❙❙ on any reader in Other Recordings, plays 30 seconds.',
       'Short Listens on the main menu: books under an hour or under three hours, for when you want to finish something.',
       'Resuming a book now reliably returns to where you left off.',
-      'The click wheel is a true circle on every screen size.',
+      'The click wheel is a true circle on every screen size, with room between it and the screen.',
     ],
   },
   {
